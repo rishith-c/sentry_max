@@ -93,7 +93,7 @@ export default function HomePage() {
         <div className="container mx-auto flex items-center gap-3 px-4 py-3">
           <Flame className="h-6 w-6 text-primary animate-flicker" aria-hidden />
           <div>
-            <h1 className="text-base font-semibold tracking-tight">IgnisLink</h1>
+            <h1 className="text-base font-semibold tracking-tight">SENTRY</h1>
             <p className="text-[11px] text-muted-foreground">
               Public situational awareness · verified active fires only
             </p>
@@ -183,7 +183,7 @@ export default function HomePage() {
           </div>
 
           <div className="rounded border border-orange-900/30 bg-orange-950/20 px-3 py-2 text-xs text-orange-200/80">
-            <strong>IgnisLink is a situational tool, not an evacuation authority.</strong> For
+            <strong>SENTRY is a situational tool, not an evacuation authority.</strong> For
             evacuation orders, follow your local Authority Having Jurisdiction (AHJ) — Cal Fire, county
             OES, or municipal fire department.
           </div>

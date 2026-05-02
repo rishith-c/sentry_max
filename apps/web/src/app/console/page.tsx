@@ -117,7 +117,7 @@ export default function ConsolePage() {
       <header className="flex shrink-0 items-center gap-4 border-b border-border bg-card/40 px-5 py-3">
         <div className="flex items-center gap-2">
           <Flame className="h-5 w-5 text-primary animate-flicker" aria-hidden />
-          <h1 className="text-base font-semibold tracking-tight">IgnisLink Dispatcher</h1>
+          <h1 className="text-base font-semibold tracking-tight">SENTRY Dispatcher</h1>
           <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
             v0 · live fixtures
           </span>

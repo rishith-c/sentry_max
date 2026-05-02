@@ -34,7 +34,7 @@ export default function AdminPage() {
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <header className="flex shrink-0 items-center gap-4 border-b border-border bg-card/40 px-5 py-3">
         <Flame className="h-5 w-5 text-primary animate-flicker" aria-hidden />
-        <h1 className="text-base font-semibold tracking-tight">IgnisLink Admin</h1>
+        <h1 className="text-base font-semibold tracking-tight">SENTRY Admin</h1>
         <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
           v0 · auth-gated in stage 5
         </span>

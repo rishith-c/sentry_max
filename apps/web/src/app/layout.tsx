@@ -8,12 +8,12 @@ import "@/styles/globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "IgnisLink — Real-time wildfire detection & dispatch",
-    template: "%s · IgnisLink",
+    default: "SENTRY — Real-time wildfire detection & dispatch",
+    template: "%s · SENTRY",
   },
   description:
     "Satellite-driven wildfire detection, ML-predicted spread, and dispatch routing for fire departments and the public.",
-  applicationName: "IgnisLink",
+  applicationName: "SENTRY",
   robots: { index: false, follow: false },
 };
 

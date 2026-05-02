@@ -495,8 +495,9 @@ export function LeafletMap({
         aria-hidden
       />
 
-      {/* Basemap toggle */}
-      <div className="absolute right-3 top-3 z-[401] flex gap-1 rounded-md border border-border bg-card/90 p-1 backdrop-blur">
+      {/* Basemap toggle — top-left so the detail sheet (which slides in from
+          the right and covers the right ~520px of the map) never hides it. */}
+      <div className="absolute left-3 top-3 z-[401] flex gap-1 rounded-md border border-border bg-card/90 p-1 backdrop-blur">
         {(["streets", "satellite", "terrain"] as const).map((b) => (
           <button
             key={b}
@@ -512,8 +513,9 @@ export function LeafletMap({
         ))}
       </div>
 
-      {/* Layer toggles */}
-      <div className="absolute right-3 top-14 z-[401] flex flex-col gap-1 rounded-md border border-border bg-card/90 p-1 backdrop-blur">
+      {/* Layer toggles — left-stacked under the basemap toggle so both stay
+          visible when the right-side detail sheet is open. */}
+      <div className="absolute left-3 top-14 z-[401] flex flex-col gap-1 rounded-md border border-border bg-card/90 p-1 backdrop-blur">
         <button
           onClick={() => setShowContours((v) => !v)}
           className={`rounded px-2 py-1 text-[10px] font-medium uppercase tracking-wide transition ${
