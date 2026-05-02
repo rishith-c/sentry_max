@@ -4,9 +4,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   transpilePackages: ["@ignislink/contracts", "@ignislink/geospatial", "@ignislink/ui"],
-  experimental: {
-    typedRoutes: true,
-  },
+  // typedRoutes is unsupported under Turbopack today.
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "api.mapbox.com" },
