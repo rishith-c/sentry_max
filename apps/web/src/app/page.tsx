@@ -158,6 +158,11 @@ export default function HomePage() {
                 status: i.verification,
                 windDirDeg: i.windDirDeg,
                 windSpeedMs: i.windSpeedMs,
+                predictedSpread: i.predictedSpread.map((p) => ({
+                  horizonMin: p.horizonMin,
+                  areaAcres: p.areaAcres,
+                  bearingDeg: p.bearingDeg,
+                })),
               }))}
               publicOnly
               initialCenter={center ? [center.lat, center.lon] : undefined}

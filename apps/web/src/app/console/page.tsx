@@ -198,6 +198,18 @@ function MapPanel({
           status: i.verification,
           windDirDeg: i.windDirDeg,
           windSpeedMs: i.windSpeedMs,
+          predictedSpread: i.predictedSpread.map((p) => ({
+            horizonMin: p.horizonMin,
+            areaAcres: p.areaAcres,
+            bearingDeg: p.bearingDeg,
+          })),
+          stations: i.stations.map((s) => ({
+            id: s.id,
+            name: s.name,
+            etaMinutes: s.etaMinutes,
+            lat: s.lat ?? 0,
+            lon: s.lon ?? 0,
+          })).filter((s) => s.lat !== 0),
           selected: i.id === selectedId,
         }))}
         onIncidentClick={onSelect}

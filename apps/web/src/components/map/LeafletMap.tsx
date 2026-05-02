@@ -11,6 +11,20 @@ export type IncidentStatus =
   | "KNOWN_PRESCRIBED"
   | "LIKELY_INDUSTRIAL";
 
+export interface MapStation {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  etaMinutes: number;
+}
+
+export interface PredictedSpread {
+  horizonMin: 60 | 360 | 1440;
+  areaAcres: number;
+  bearingDeg: number;
+}
+
 export interface MapIncident {
   id: string;
   shortId: string;
@@ -23,6 +37,10 @@ export interface MapIncident {
   windSpeedMs: number;
   /** Fuel-class scaling factor for the spread sim. 1.0 = grass; 0.4 = mixed forest. */
   fuelFactor?: number;
+  /** ML-predicted 50% probability spread per horizon. Drives the contour ellipses. */
+  predictedSpread?: PredictedSpread[];
+  /** Nearby fire stations for the dispatcher view. */
+  stations?: MapStation[];
   selected?: boolean;
 }
 
@@ -92,11 +110,15 @@ export function LeafletMap({
   const mapRef = useRef<LMap | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markersRef = useRef<Map<string, LMarker>>(new Map());
+  const overlayLayerRef = useRef<L.LayerGroup | null>(null);
+  const stationLayerRef = useRef<L.LayerGroup | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const particlesRef = useRef<Particle[]>([]);
   const incidentsRef = useRef<MapIncident[]>(incidents);
   const rafRef = useRef<number | null>(null);
   const [basemap, setBasemap] = useState(initialBasemap);
+  const [showContours, setShowContours] = useState(true);
+  const [showStations, setShowStations] = useState(!publicOnly);
 
   // Keep latest incidents available to the rAF loop without re-creating it.
   useEffect(() => {
@@ -166,10 +188,14 @@ export function LeafletMap({
     tileLayerRef.current = tileLayer;
   }, [basemap]);
 
-  // ─────────────── Incident markers ───────────────
+  // ─────────────── Incident markers + spread contours + stations ───────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+
+    // Lazily create overlay layer groups.
+    if (!overlayLayerRef.current) overlayLayerRef.current = L.layerGroup().addTo(map);
+    if (!stationLayerRef.current) stationLayerRef.current = L.layerGroup().addTo(map);
 
     const visible = incidents.filter(
       (i) => !publicOnly || i.status === "EMERGING" || i.status === "CREWS_ACTIVE",
@@ -184,23 +210,27 @@ export function LeafletMap({
       }
     }
 
-    // Add or update.
+    // Wipe + redraw spread contours and station markers each pass — they're cheap
+    // (a few dozen polygons total) and keep state consistent on selection change.
+    overlayLayerRef.current.clearLayers();
+    stationLayerRef.current.clearLayers();
+
     for (const inc of visible) {
       const color = STATUS_COLOR[inc.status];
+
+      // Hotspot marker (custom divIcon)
       const ring = inc.selected ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.7)";
       const ringWidth = inc.selected ? 3 : 2;
       const radius = inc.selected ? 12 : 8;
-      const html = `
-        <div style="position:relative;width:${radius * 4}px;height:${radius * 4}px;display:flex;align-items:center;justify-content:center;">
-          <div style="position:absolute;width:${radius * 4}px;height:${radius * 4}px;border-radius:50%;background:radial-gradient(circle, ${color}55 0%, ${color}00 70%);"></div>
-          <div style="position:absolute;width:${radius * 2}px;height:${radius * 2}px;border-radius:50%;background:${color};border:${ringWidth}px solid ${ring};box-shadow:0 0 6px ${color};animation:${inc.status === "EMERGING" || inc.status === "UNREPORTED" ? "ignis-pulse 1.6s ease-in-out infinite" : "none"};"></div>
-          ${
-            inc.selected
-              ? `<div style="position:absolute;left:${radius * 2 + 6}px;top:0;background:rgba(0,0,0,0.7);color:white;padding:2px 6px;border-radius:3px;font-family:ui-monospace,monospace;font-size:11px;white-space:nowrap;">${inc.shortId}</div>`
-              : ""
-          }
-        </div>
-      `;
+      const animate =
+        inc.status === "EMERGING" || inc.status === "UNREPORTED"
+          ? "ignis-pulse 1.6s ease-in-out infinite"
+          : "none";
+      const html = `<div style="position:relative;width:${radius * 4}px;height:${radius * 4}px;display:flex;align-items:center;justify-content:center;pointer-events:auto;">
+  <div style="position:absolute;width:${radius * 4}px;height:${radius * 4}px;border-radius:50%;background:radial-gradient(circle, ${color}66 0%, ${color}00 65%);"></div>
+  <div style="position:absolute;width:${radius * 2}px;height:${radius * 2}px;border-radius:50%;background:${color};border:${ringWidth}px solid ${ring};box-shadow:0 0 10px ${color}cc, 0 0 18px ${color}66;animation:${animate};"></div>
+  ${inc.selected ? `<div style="position:absolute;left:${radius * 2 + 6}px;top:-2px;background:rgba(0,0,0,0.78);color:white;padding:2px 6px;border-radius:3px;font-family:ui-monospace,monospace;font-size:11px;white-space:nowrap;pointer-events:none;">${inc.shortId}</div>` : ""}
+</div>`;
       const icon = L.divIcon({
         html,
         className: "ignis-marker",
@@ -213,15 +243,84 @@ export function LeafletMap({
         existing.setLatLng([inc.lat, inc.lon]);
         existing.setIcon(icon);
       } else {
-        const marker = L.marker([inc.lat, inc.lon], { icon });
-        if (onIncidentClick) {
-          marker.on("click", () => onIncidentClick(inc.id));
-        }
+        const marker = L.marker([inc.lat, inc.lon], { icon, zIndexOffset: 1000 });
+        if (onIncidentClick) marker.on("click", () => onIncidentClick(inc.id));
         marker.addTo(map);
         markersRef.current.set(inc.id, marker);
       }
+
+      // ML predicted spread contours — three nested ellipses per horizon, oriented
+      // along the bearing. Drawn from largest (24h, faintest) inward to (1h,
+      // strongest) so the smaller ones stay visible on top.
+      if (showContours && inc.predictedSpread && inc.predictedSpread.length > 0) {
+        const horizonStyles: Record<60 | 360 | 1440, { stroke: string; fill: string; weight: number; dash?: string }> = {
+          60: { stroke: color, fill: color, weight: 2 },
+          360: { stroke: color, fill: color, weight: 1.5, dash: "4 4" },
+          1440: { stroke: color, fill: color, weight: 1, dash: "2 6" },
+        };
+        const horizonAlpha: Record<60 | 360 | 1440, number> = { 60: 0.28, 360: 0.14, 1440: 0.07 };
+        const sorted = [...inc.predictedSpread].sort((a, b) => b.horizonMin - a.horizonMin);
+        for (const h of sorted) {
+          const style = horizonStyles[h.horizonMin];
+          const points = ellipseFromArea(inc.lat, inc.lon, h.areaAcres, h.bearingDeg);
+          const poly = L.polygon(points, {
+            color: style.stroke,
+            weight: style.weight,
+            opacity: 0.9,
+            fillColor: style.fill,
+            fillOpacity: horizonAlpha[h.horizonMin],
+            dashArray: style.dash,
+            interactive: false,
+          });
+          overlayLayerRef.current!.addLayer(poly);
+        }
+
+        // Wind-direction line emanating from the hotspot (~ to the 6 h ellipse tip).
+        const six = inc.predictedSpread.find((p) => p.horizonMin === 360);
+        if (six) {
+          const tip = offsetByMeters(inc.lat, inc.lon, areaAcresToMajorRadiusM(six.areaAcres), six.bearingDeg);
+          const arrow = L.polyline([[inc.lat, inc.lon], tip], {
+            color: color,
+            weight: 1.5,
+            opacity: 0.85,
+            dashArray: "1 4",
+            interactive: false,
+          });
+          overlayLayerRef.current!.addLayer(arrow);
+        }
+      }
+
+      // Fire-station markers — only when not in publicOnly mode.
+      if (showStations && inc.stations && inc.stations.length > 0) {
+        for (const stn of inc.stations) {
+          if (typeof stn.lat !== "number" || typeof stn.lon !== "number") continue;
+          const stnHtml = `<div style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:rgba(8,8,10,0.9);border:1.5px solid rgba(228,228,231,0.6);box-shadow:0 0 4px rgba(0,0,0,0.6);font-family:ui-sans-serif,system-ui;color:#fafafa;font-size:11px;font-weight:600;line-height:1;pointer-events:auto;" title="${stn.name} · ${stn.etaMinutes} min">🚒</div>`;
+          const stnIcon = L.divIcon({
+            html: stnHtml,
+            className: "ignis-station-marker",
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+          });
+          const stnMarker = L.marker([stn.lat, stn.lon], { icon: stnIcon })
+            .bindTooltip(`${stn.name} · ${stn.etaMinutes} min ETA`, {
+              direction: "top",
+              offset: [0, -8],
+              opacity: 0.92,
+            });
+          stationLayerRef.current!.addLayer(stnMarker);
+
+          // Faint dotted line from station to hotspot.
+          const conn = L.polyline([[stn.lat, stn.lon], [inc.lat, inc.lon]], {
+            color: "rgba(228,228,231,0.18)",
+            weight: 1,
+            dashArray: "1 4",
+            interactive: false,
+          });
+          stationLayerRef.current!.addLayer(conn);
+        }
+      }
     }
-  }, [incidents, publicOnly, onIncidentClick]);
+  }, [incidents, publicOnly, onIncidentClick, showContours, showStations]);
 
   // ─────────────── Particle simulation overlay ───────────────
   useEffect(() => {
@@ -412,6 +511,34 @@ export function LeafletMap({
           </button>
         ))}
       </div>
+
+      {/* Layer toggles */}
+      <div className="absolute right-3 top-14 z-[401] flex flex-col gap-1 rounded-md border border-border bg-card/90 p-1 backdrop-blur">
+        <button
+          onClick={() => setShowContours((v) => !v)}
+          className={`rounded px-2 py-1 text-[10px] font-medium uppercase tracking-wide transition ${
+            showContours
+              ? "bg-primary/80 text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          title="ML predicted 50% spread @ 1h / 6h / 24h"
+        >
+          ML spread
+        </button>
+        {!publicOnly && (
+          <button
+            onClick={() => setShowStations((v) => !v)}
+            className={`rounded px-2 py-1 text-[10px] font-medium uppercase tracking-wide transition ${
+              showStations
+                ? "bg-primary/80 text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            title="Nearest fire stations"
+          >
+            Stations
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -419,4 +546,68 @@ export function LeafletMap({
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+// ─────────────── Spread geometry helpers ───────────────
+//
+// Ellipse model: fire growth is rarely circular. Wind-driven runs produce a
+// length-to-breadth ratio of ~3:1 to 8:1. We use a 2.5:1 axis ratio at low
+// horizons and 1.4:1 at long horizons (because the prediction's confidence
+// circle widens). The bearing is along the wind/spread direction.
+
+const ACRE_M2 = 4046.8564224;
+
+export function areaAcresToMajorRadiusM(areaAcres: number): number {
+  // Effective semi-major radius, treating the ellipse area as A = π · a · b
+  // and assuming an axis ratio of 2.5:1 (a / b = 2.5), so b = a / 2.5
+  // → A = π · a² / 2.5 → a = sqrt(2.5 · A / π).
+  const m2 = areaAcres * ACRE_M2;
+  return Math.sqrt((2.5 * m2) / Math.PI);
+}
+
+function ellipseFromArea(
+  lat: number,
+  lon: number,
+  areaAcres: number,
+  bearingDeg: number,
+  segments = 48,
+): [number, number][] {
+  const semiMajor = areaAcresToMajorRadiusM(areaAcres);
+  const semiMinor = semiMajor / 2.5;
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  // Bearing to math-radians (0° = N, CW; math is 0° = E, CCW).
+  const theta = ((90 - bearingDeg) * Math.PI) / 180;
+  const cosT = Math.cos(theta);
+  const sinT = Math.sin(theta);
+  // Anchor the back of the ellipse at the hotspot and let the head extend in
+  // the bearing direction (real fire ellipses anchor near the heel, not the
+  // centroid). Translate by +semiMajor along bearing.
+  const ax = semiMajor * cosT;
+  const ay = semiMajor * sinT;
+  const points: [number, number][] = [];
+  for (let i = 0; i < segments; i++) {
+    const phi = (2 * Math.PI * i) / segments;
+    const ex = semiMajor * Math.cos(phi);
+    const ey = semiMinor * Math.sin(phi);
+    // Rotate by theta + translate the major-axis offset (anchor heel at hotspot).
+    const x = ex * cosT - ey * sinT + ax;
+    const y = ex * sinT + ey * cosT + ay;
+    const dLat = y / 111_000;
+    const dLon = x / (111_000 * cosLat);
+    points.push([lat + dLat, lon + dLon]);
+  }
+  return points;
+}
+
+function offsetByMeters(
+  lat: number,
+  lon: number,
+  meters: number,
+  bearingDeg: number,
+): [number, number] {
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  const theta = ((90 - bearingDeg) * Math.PI) / 180;
+  const dx = meters * Math.cos(theta);
+  const dy = meters * Math.sin(theta);
+  return [lat + dy / 111_000, lon + dx / (111_000 * cosLat)];
 }

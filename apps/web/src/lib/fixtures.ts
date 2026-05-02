@@ -17,6 +17,10 @@ export interface StationCandidate {
   agency: string;
   etaMinutes: number;
   distanceKm: number;
+  /** Optional coordinates for map rendering — populated for the first three
+   *  candidates per incident in the demo fixtures. */
+  lat?: number;
+  lon?: number;
 }
 
 export interface VerificationSource {
@@ -74,9 +78,9 @@ export const FIXTURE_INCIDENTS: FixtureIncident[] = [
       { horizonMin: 1440, areaAcres: 980, bearingDeg: 78 },
     ],
     stations: [
-      { id: "stn_eldorado_3", name: "Pollock Pines Station 28", agency: "El Dorado Cnty FD", etaMinutes: 6, distanceKm: 4.1 },
-      { id: "stn_eldorado_5", name: "Camino Station 17", agency: "Cal Fire AEU", etaMinutes: 11, distanceKm: 9.4 },
-      { id: "stn_eldorado_2", name: "Placerville HQ", agency: "El Dorado Cnty FD", etaMinutes: 14, distanceKm: 13.2 },
+      { id: "stn_eldorado_3", name: "Pollock Pines Station 28", agency: "El Dorado Cnty FD", etaMinutes: 6, distanceKm: 4.1, lat: 38.7619, lon: -120.4641 },
+      { id: "stn_eldorado_5", name: "Camino Station 17", agency: "Cal Fire AEU", etaMinutes: 11, distanceKm: 9.4, lat: 38.7368, lon: -120.6747 },
+      { id: "stn_eldorado_2", name: "Placerville HQ", agency: "El Dorado Cnty FD", etaMinutes: 14, distanceKm: 13.2, lat: 38.7296, lon: -120.7986 },
     ],
     verificationSources: [
       {
@@ -145,8 +149,8 @@ export const FIXTURE_INCIDENTS: FixtureIncident[] = [
       { horizonMin: 1440, areaAcres: 410, bearingDeg: 28 },
     ],
     stations: [
-      { id: "stn_lane_2", name: "Eugene-Springfield Station 9", agency: "Eugene-Springfield FR", etaMinutes: 8, distanceKm: 6.7 },
-      { id: "stn_lane_5", name: "Lane FR District 1", agency: "Lane Fire Authority", etaMinutes: 12, distanceKm: 10.3 },
+      { id: "stn_lane_2", name: "Eugene-Springfield Station 9", agency: "Eugene-Springfield FR", etaMinutes: 8, distanceKm: 6.7, lat: 44.0306, lon: -123.0739 },
+      { id: "stn_lane_5", name: "Lane FR District 1", agency: "Lane Fire Authority", etaMinutes: 12, distanceKm: 10.3, lat: 43.9621, lon: -123.0461 },
     ],
     verificationSources: [
       {
@@ -217,9 +221,9 @@ export const FIXTURE_INCIDENTS: FixtureIncident[] = [
       { horizonMin: 1440, areaAcres: 1820, bearingDeg: 55 },
     ],
     stations: [
-      { id: "stn_washoe_4", name: "Reno Station 11", agency: "Reno FD", etaMinutes: 9, distanceKm: 7.8 },
-      { id: "stn_washoe_2", name: "Truckee Meadows Station 35", agency: "TMFR", etaMinutes: 14, distanceKm: 12.6 },
-      { id: "stn_washoe_8", name: "Sparks Station 4", agency: "Sparks FD", etaMinutes: 17, distanceKm: 16.4 },
+      { id: "stn_washoe_4", name: "Reno Station 11", agency: "Reno FD", etaMinutes: 9, distanceKm: 7.8, lat: 39.5283, lon: -119.8138 },
+      { id: "stn_washoe_2", name: "Truckee Meadows Station 35", agency: "TMFR", etaMinutes: 14, distanceKm: 12.6, lat: 39.4856, lon: -119.7825 },
+      { id: "stn_washoe_8", name: "Sparks Station 4", agency: "Sparks FD", etaMinutes: 17, distanceKm: 16.4, lat: 39.5388, lon: -119.7472 },
     ],
     verificationSources: [
       {
