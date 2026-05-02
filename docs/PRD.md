@@ -11,25 +11,33 @@
 | FIRMS | NASA Fire Information for Resource Management System. Near-real-time satellite thermal-anomaly feed (VIIRS S-NPP, NOAA-20, NOAA-21; MODIS Aqua/Terra). |
 | URT | Ultra Real-Time. FIRMS variant published within ~3 min of overpass. |
 | Detection / hotspot | A single thermal-anomaly point from FIRMS at a given timestamp. |
-| Incident | One or more spatio-temporally-clustered detections that the system treats as the same fire. |
+| Incident | One or more source detections that the system treats as the same operational hazard. Wildfire incidents cluster thermal hotspots; earthquake incidents track one authoritative seismic event and its updates. |
 | HRRR | NOAA High-Resolution Rapid Refresh weather model. Hourly initialization, 3 km grid. |
 | LANDFIRE | USGS dataset of fuel models, canopy cover, vegetation height. |
 | Rothermel | Surface fire-spread equations from Rothermel (1972), the de-facto physics baseline. |
 | Fire-front IoU | Intersection-over-union of predicted vs. observed fire perimeters at a time horizon — our primary ML metric. |
+| USGS Earthquake GeoJSON feed | Official USGS real-time earthquake feed. Summary feeds are intended by USGS for automated display applications and update approximately every minute. |
+| ComCat / FDSN Event API | USGS ANSS Comprehensive Earthquake Catalog query API for earthquake search, reconciliation, and backfill. |
+| ShakeMap | USGS product estimating spatial shaking intensity and ground motion for significant earthquakes. |
+| PAGER | USGS Prompt Assessment of Global Earthquakes for Response alert level, used as a strong public-impact signal when available. |
+| MMI | Modified Mercalli Intensity, an observed/estimated shaking intensity scale. |
+| DYFI | USGS "Did You Feel It?" community intensity reports. |
 | WUI | Wildland-Urban Interface. |
 | ICS | Incident Command System, the standard US emergency-response framework. |
 | CAD | Computer-Aided Dispatch (Tyler New World, Hexagon, Central Square, etc.). |
-| ETA payload | The dispatch artifact: hotspot coords, FIRMS confidence, verification status, predicted spread (1 h / 6 h / 24 h GeoJSON), 3 nearest stations + ETAs, suggested upwind staging area. |
+| ETA payload | The dispatch artifact. For wildfire: hotspot coords, FIRMS confidence, verification status, predicted spread, 3 nearest stations + ETAs, suggested upwind staging area. For earthquake: USGS event id, epicenter, magnitude/depth/MMI/PAGER signals, impact rings, threat rationale, affected region, and recommended response resources. |
 
 ---
 
 ## 1. Vision
 
-IgnisLink shrinks the time between *"satellite saw heat"* and *"trucks rolling out of the firehouse."*
+IgnisLink shrinks the time between *"a hazard signal appeared"* and *"dispatch has actionable, auditable context."*
 
 NASA FIRMS publishes thermal anomalies within ~3 minutes of satellite overpass. Today, most fire departments learn about a wildland fire from civilian 911 calls — minutes to hours later, after the fire is already established and after the **pre-suppression window** (the first 30–60 minutes when initial attack is most effective) has closed. IgnisLink ingests FIRMS in near-real-time, verifies each hotspot against news and social signals to suppress false positives (controlled burns, industrial flares, agricultural burns), predicts where the fire will go in the next 1, 6, and 24 hours using a custom-trained ML model conditioned on live wind / fuel / terrain, visualizes propagation as a live WebGL particle simulation, and routes the verified incident — with predicted spread, recommended staging area, and the three nearest stations ranked by ETA — directly to the dispatcher console and out to partner CAD systems.
 
-IgnisLink is **not** a replacement for 911 or for human dispatch judgement. It is an **assistive surveillance and triage layer**: the satellite says *"something is hot here,"* and IgnisLink says *"here is the verified context, the predicted footprint, and the nearest crew."*
+Earthquakes add the same operational problem in a different hazard domain: the authoritative event may be available before the local picture is clear. IgnisLink ingests official USGS earthquake feeds, tracks revised event metadata, estimates likely impact from magnitude, depth, MMI, PAGER alert, tsunami flag, ShakeMap/DYFI products, and exposure context, and renders shockwave-style situational animation plus impact/intensity rings on the same dispatcher map. The goal is not to "predict earthquakes"; it is to detect the authoritative event fast, prioritize affected areas, and surface response status.
+
+IgnisLink is **not** a replacement for 911, USGS, ShakeAlert, local emergency management, or human dispatch judgement. It is an **assistive surveillance and triage layer**: a source says *"something happened here,"* and IgnisLink says *"here is the verified context, likely impact footprint, uncertainty, and nearest response options."*
 
 ### 1.1 North-star metrics
 
@@ -44,6 +52,10 @@ IgnisLink is **not** a replacement for 911 or for human dispatch judgement. It i
 | **Console event-to-render** | p95 < 90 s | `detection.created` emitted → rendered in dispatcher console |
 | **ML inference p95** | < 800 ms | `/predict/spread` server-side latency |
 | **End-to-end predict** | p95 < 2 s | Hotspot ingest → contour GeoJSON visible in console |
+| **Earthquake feed → DB** | p95 < 5 s | USGS feed response → normalized event/version persisted |
+| **Earthquake event → console** | p95 < 90 s | `earthquake.detected` outbox event → rendered in dispatcher console |
+| **Earthquake impact inference p95** | < 800 ms | `/predict/impact` model runtime after context is prepared |
+| **Earthquake public alert latency** | p95 < 30 s | Public-safe USGS event update → public map/API update |
 
 ### 1.2 Non-goals (v1)
 
@@ -53,6 +65,8 @@ IgnisLink is **not** a replacement for 911 or for human dispatch judgement. It i
 - **Replace ICS or CAD.** Integration is webhook-out, not replacement.
 - **Indoor / structure fires.** Out of scope. The model is trained on wildland fire dynamics; structure-fire physics differ.
 - **Prescribed-burn dispatch.** Verification should suppress these to `KNOWN_PRESCRIBED`, not dispatch.
+- **Earthquake early warning.** v1 earthquake support is not a ShakeAlert replacement and must not claim seconds-ahead warning.
+- **Official earthquake or tsunami orders.** Public surfaces can show USGS/PAGER/tsunami flags and local-agency links, but do not issue evacuation, shelter, bridge, tsunami, or structural-safety orders.
 
 ### 1.3 Ethical & operational guardrails
 
@@ -60,6 +74,7 @@ IgnisLink is **not** a replacement for 911 or for human dispatch judgement. It i
 - **No PII on public surfaces.** The Public Awareness Map shows neither station rosters, unit IDs, nor responder identities.
 - **Audit everything.** Every dispatch is recorded with the exact payload, who pressed the button, what predictions were attached, what model version produced them. Retention policy in §10 (Codex).
 - **Bias in training data.** The FIRMS archive over-represents large/persistent fires. Documented in `docs/ml-model-card.md` with explicit rebalancing — see §5.2.
+- **Hazard-specific uncertainty.** Earthquake impact outputs must label whether they are USGS product-derived, model-derived fallback, or incomplete due to missing ShakeMap/PAGER/DYFI products.
 
 ---
 
@@ -129,6 +144,9 @@ This section is the product surface — Codex's §6 (Architecture) and §7 (APIs
 | F8 | Dispatcher Console | 1+ (progressive) | Claude | `/console` |
 | F9 | Public Awareness Map | 1+ | Claude | `/` |
 | F10 | Admin | 5+ | Claude (UI) + Codex (rules engine) | `/admin` |
+| F11 | Earthquake ingest + reconciliation | 7 | Codex | Console, Public Map, Alerts API |
+| F12 | Earthquake impact visualization | 7 | Claude | Console, Public Map |
+| F13 | Quake-impact ML model | 8 | Claude (model) + Codex (route) | Console, Public Map, dispatch payload |
 
 ### 3.1 Feature dependencies
 
@@ -136,6 +154,9 @@ This section is the product surface — Codex's §6 (Architecture) and §7 (APIs
 - F5 (particle sim) requires F3 (live wind grid) and F4 (predicted contours for color / lifetime).
 - F6 (dispatch) requires F1+F2 (verification gate); F4 is an *enrichment* of dispatch payload, not a precondition.
 - F7 (cameras) requires F6 so camera frames can be attached to the dispatch payload.
+- F11 (earthquake ingest) can run independently of FIRMS. It requires USGS real-time feeds, ComCat reconciliation, generic incident/event contracts, and PostGIS persistence.
+- F12 (earthquake visualization) requires F11 and uses either USGS ShakeMap products or fallback intensity rings from F13.
+- F13 (quake-impact ML) requires F11, optional ShakeMap/DYFI/PAGER detail products, exposure/terrain/context data, and shared `packages/contracts/predict-impact.ts`.
 
 ### 3.2 Verification taxonomy (F2)
 
@@ -150,6 +171,19 @@ The verification worker emits one of:
 | `LIKELY_INDUSTRIAL` | Hotspot inside a registered industrial-flare / hot-stack zone. | Suppressed by default; admin-overridable. |
 
 Status assignment is best-effort — final dispatcher judgement is always required. Codex owns the worker; Claude owns the badge UI in the console (F8).
+
+### 3.3 Earthquake taxonomy (F11-F13)
+
+Earthquake support is additive and does not weaken wildfire scope. The backend emits hazard-specific events and projects them into the generic incident queue with `hazard_type="earthquake"`.
+
+| Signal | Meaning | Default routing |
+| --- | --- | --- |
+| `EARTHQUAKE_REVIEWED` | USGS event with reviewed status or authoritative detail product. | Surface in console and public map according to threat band. |
+| `EARTHQUAKE_AUTOMATIC` | USGS automatic event not yet reviewed. | Surface in console; public map allowed for moderate+ threat with clear "automatic" label. |
+| `EARTHQUAKE_UPDATED` | Existing USGS event revised by newer `properties.updated` or detail product. | Update incident version and replay sequence. |
+| `EARTHQUAKE_DELETED` | USGS deleted/superseded event. | Tombstone/resolved internally; public event resolves without hard-delete ambiguity. |
+
+Threat bands are `LOW`, `MODERATE`, `HIGH`, and `CRITICAL`. The first implementation uses a deterministic scoring model from magnitude, depth, MMI, CDI, PAGER alert, tsunami flag, felt count, event status, and recency. The custom `quake-impact` model may later refine this score, but it cannot silently override official USGS/PAGER signals.
 
 ---
 
@@ -176,11 +210,14 @@ Status assignment is best-effort — final dispatcher judgement is always requir
   4. Particle simulation (F5) — 50–100 k particles advected by wind, color from burn-probability raster.
   5. Fire stations (ArcGIS) with 5 / 10 / 20-min isochrones from Mapbox Directions.
   6. Historical perimeter playback (timeline scrubber).
+  7. Earthquake epicenters with magnitude/depth encoding and reviewed/automatic status.
+  8. Earthquake shockwave replay rings from epicenter. Animation uses event origin time and configurable replay speed; it must be labeled as visualization/replay, not real-time wavefront certainty.
+  9. Earthquake impact/intensity overlays: USGS ShakeMap MMI/PGA/PGV products when available, otherwise model-derived fallback rings. Bands support MMI IV/V/VI/VII/VIII+ with confidence opacity.
 - Mini-map upper-right showing CONUS overview with active-incident pins.
 
 **Incident queue (right, 30 %):**
 - shadcn `Table`, sortable, filterable.
-- Columns: ID short, lat/lon, FIRMS confidence, verification badge, age, nearest station, "Dispatch" button gated by verification.
+- Columns: hazard icon/type, ID short, location, source confidence/review status, threat/severity badge, age, nearest station/resource, scene status, and "Dispatch" button gated by human confirmation.
 - New rows animate in via Framer Motion (`y: -10 → 0`, 200 ms ease-out) without disrupting scroll position.
 - Right-click a row → detail sheet.
 
@@ -193,6 +230,13 @@ Status assignment is best-effort — final dispatcher judgement is always requir
 - Suggested upwind staging-area marker.
 - "Dispatch" button → shadcn `AlertDialog` confirm → triggers F6 webhook + audit log entry.
 - "Mute incident" / "Mark resolved" / "Reassign" actions.
+
+**Earthquake detail mode:**
+- Header: USGS event id, magnitude, depth, origin age, review status, and threat band.
+- Shockwave replay control: play/pause, time since origin, and "replay visualization" label.
+- Impact panel: max MMI, PAGER alert, tsunami flag, felt count, affected counties, population exposure estimate, critical facility counts, landslide/liquefaction flags when available.
+- Impact rings: toggle MMI/PGA/PGV, model-derived rings, and confidence/uncertainty.
+- Scene status: `Monitoring`, `Recommended`, `Dispatched`, `On scene`, `Assessing`, `Needs mutual aid`, `Resolved`, `False alarm`, `Muted`. Internal-only status updates include actor/source and timestamp.
 
 **Command palette (`Cmd-K`, shadcn `Command`) and global hotkeys** (committed to Codex in HANDOFF 2026-05-02T04:40:23Z; pushback welcome before Stage 8):
 - `D` — Dispatch focused incident
@@ -207,7 +251,7 @@ Horizon overlay toggle (1 h / 6 h / 24 h) is in the legend rather than the globa
 
 **Real-time:**
 - Socket.IO connection on mount; reconnect with exponential backoff (1 s → 30 s cap).
-- Events consumed: `detection.created`, `detection.updated`, `verification.completed`, `dispatch.completed`, `prediction.ready`.
+- Events consumed: `detection.created`, `detection.updated`, `verification.completed`, `dispatch.completed`, `prediction.ready`, `earthquake.detected`, `earthquake.updated`, `earthquake.impact.ready`, `incident.internal.updated`.
 - Toast on new high-confidence unverified hotspot (shadcn `Sonner`); audible chime gated by per-user setting.
 
 **Theming & accessibility:**
@@ -222,10 +266,12 @@ Horizon overlay toggle (1 h / 6 h / 24 h) is in the legend rather than the globa
 - Read-only, civilian-friendly legend.
 - Address search (Mapbox Geocoding) + browser geolocation prompt with explicit consent copy.
 - Layers: active fires (verified only — `UNREPORTED` suppressed for civilian view in v1), wind direction; AQ index post-v1.
+- Earthquake layer: public-safe USGS event points, magnitude/depth badge, threat band, public-safe MMI/impact rings, tsunami flag, and local-agency links. Public layer must not expose unit status, station IDs, dispatch payloads, exact critical-infrastructure targets, or partner metadata.
 - No PII, no station info, no internal verification provenance.
 - Mobile-first responsive layout.
 - Static-tile fallback when MapboxGL fails (low-bandwidth, ad-blocker breaking GL).
 - Disclaimer banner: *"IgnisLink is a situational tool. For evacuation orders, follow your local AHJ."*
+- Earthquake disclaimer: *"Earthquake data is sourced from USGS and local agencies. Follow official emergency instructions for evacuation, tsunami, shelter, and structural safety."*
 
 ### 4.3 Admin (`/admin`)
 
@@ -237,6 +283,7 @@ Horizon overlay toggle (1 h / 6 h / 24 h) is in the legend rather than the globa
   - **Model versions** — current pinned `fire-spread`; rollback with one click; A/B traffic split (post-v1).
   - **Audit log** — paginated table of dispatches + verification decisions; replay button.
   - **Mute regions** — temporary suppression for prescribed burns or known events.
+  - **Hazard sources** — enable/disable FIRMS and USGS earthquake feeds per region, set earthquake minimum magnitude/threat thresholds, configure public-map thresholds, and manage USGS feed reconciliation settings.
 
 ### 4.4 Cross-cutting
 
@@ -261,14 +308,25 @@ Two parallel real-time event streams flow over Socket.IO with strict redaction a
 | Station IDs / ETAs | included | dropped entirely |
 | Dispatch payload | included | dropped entirely |
 | Partner metadata | included | dropped entirely |
+| Earthquake scene/unit status | internal scene lifecycle + source | dropped entirely |
+| Earthquake epicenter | exact USGS coordinates internally | rounded/geohashed on public surfaces unless the source product explicitly permits exact public coordinates |
+| Earthquake impact | full ShakeMap/model products internally | public-safe threat band and generalized rings only |
 
 Redaction is enforced server-side at event emission, **not** at the client — clients must be assumed adversarial. A contract test in `packages/contracts/__tests__/redaction.test.ts` asserts no internal-only field can leak into a public event under any code path.
+
+### 4.6 Earthquake UX acceptance criteria
+
+- Shockwave animation never implies predictive certainty; it must show event origin time and replay/stale status.
+- Earthquake impact rings remain visible and legible on dark mode, mobile, and low-bandwidth/static fallback.
+- Threat badges use icon/shape/text plus color, not color alone.
+- Public map hides `LOW` automatic events by default unless an admin region override enables them.
+- Dispatcher can filter queue by hazard type, threat band, review status, and scene status.
 
 ---
 
 ## 5. ML — Fire-Spread Model
 
-> **Owner:** Claude (model author). Codex wires the inference route. Coordination on contract via `packages/contracts/predict-spread.ts` (lock required).
+> **Owner:** Claude (model author). Codex wires the inference routes. Coordination on contracts via `packages/contracts/predict-spread.ts` and `packages/contracts/predict-impact.ts` (lock required).
 
 ### 5.1 Goal & deliverables
 
@@ -442,6 +500,35 @@ Pydantic models for `apps/api-py` are generated from the TS Zod schemas via `zod
 - **Rollback:** Admin UI (§4.3) → Model Versions → "Revert to <prior>"; takes effect within 5 min (cache eviction + ONNX re-load).
 - **Model card:** `docs/ml-model-card.md` — mandatory; covers training data, intended use, limitations, ecoregion coverage, known failure modes.
 
+### 5.7 Earthquake impact model (`quake-impact`)
+
+**Problem:** Given a USGS earthquake event plus optional ShakeMap/PAGER/DYFI/detail products and exposure context, estimate likely affected areas and response priority. This is not earthquake prediction; the event has already happened.
+
+**Baseline:** deterministic threat score using magnitude, depth, MMI, CDI, PAGER alert, tsunami flag, felt count, review status, and recency. PAGER is the strongest signal when present. Shallow, high-magnitude events escalate; deep events de-escalate unless MMI/PAGER/tsunami signals contradict.
+
+**Primary model:** gradient-boosted or tabular-neural impact ranker for v1, moving to a graph/geospatial model only after enough validated historical labels exist. Inputs:
+
+- USGS event metadata: event id, origin time, magnitude, magnitude type, depth, place, review status, significance.
+- USGS products: ShakeMap MMI/PGA/PGV grids or polygons, PAGER alert, DYFI CDI/felt counts, tsunami flag.
+- Exposure/context: population grids, HIFLD critical facilities, road/bridge density, slope, liquefaction/landslide susceptibility, time of day, county/jurisdiction boundaries.
+- Historical labels: USGS PAGER outcomes, ShakeMap intensity, FEMA/public damage summaries where legally usable, and incident response outcomes when available.
+
+**Outputs:**
+
+- `threat_score` 0-100 and `threat_band`: `LOW`, `MODERATE`, `HIGH`, `CRITICAL`.
+- `max_mmi`, `impact_radius_m`, MMI/PGA/PGV intensity rings, and affected counties.
+- Exposed population bucket and critical-asset counts by class.
+- Secondary hazard flags: tsunami, landslide, liquefaction, infrastructure.
+- `reliability`: `low`, `medium`, `high`, with rationale and source completeness flags.
+
+**Serving contract:** `POST /predict/impact` takes `earthquake_event_id`, USGS event metadata, optional `shakemap_raster_key`, optional exposure context key, and requested outputs. It returns model version, generated time, threat score/band, impact rings, exposure summary, reliability, cache state, and input hash. p95 model runtime target is under 800 ms once context is prepared.
+
+**Guardrails:**
+
+- Official USGS/PAGER/ShakeMap values remain visible and cannot be silently overwritten by model output.
+- Low-reliability impact output must render with reduced emphasis and explicit uncertainty copy.
+- Model output never authorizes automatic dispatch or public safety orders.
+
 ---
 
 ## 6. Backend Architecture
@@ -467,6 +554,8 @@ IgnisLink uses a split backend so life-safety ingestion and dispatch remain isol
 7. Enrichment jobs build a `FireContext` from weather, fuels, terrain, and cached raster sources, then emit `fire_context.ready`.
 8. Prediction requests call Agent A's model artifact through `POST /predict/spread`, cache results for 15 minutes, and emit `prediction.ready`.
 9. Dispatch decision jobs rank nearby stations, create an audit record, deliver through primary and fallback channels, and emit dispatch delivery events.
+10. Earthquake polling jobs ingest USGS real-time GeoJSON feeds, reconcile through the USGS FDSN Event Catalog API, persist event versions, compute threat bands, and emit `earthquake.detected` or `earthquake.updated`.
+11. Earthquake impact jobs fetch USGS detail products when available, attach ShakeMap/PAGER/DYFI provenance, call `POST /predict/impact` only when fallback/model impact estimates are needed, and emit `earthquake.impact.ready`.
 
 ### 6.3 Persistence
 
@@ -480,6 +569,10 @@ PostgreSQL 16 with PostGIS and TimescaleDB is the system of record:
 - `webhook_subscriptions`: partner id, endpoint, secret reference, event filters, status, rate limit policy, and last delivery summary.
 - `event_outbox`: durable event id, aggregate id, event type, schema version, payload, publish state, retry count, and timestamps.
 - `audit_log`: append-only security, admin, dispatch, and partner API actions.
+- `earthquake_events`: canonical USGS event id, aliases, magnitude, magnitude type, epicenter `geometry(Point, 4326)`, depth km, origin time, updated time, status, tsunami flag, felt count, CDI, MMI, PAGER alert, significance, place, URL/detail URL, threat score/band, and provenance JSON.
+- `earthquake_event_versions`: immutable version history keyed by USGS event id and `properties.updated` for reviewed updates, product additions, deleted/superseded events, and scoring changes.
+- `earthquake_products`: normalized references to ShakeMap, PAGER, DYFI, moment tensor, focal mechanism, and other USGS detail products used in impact scoring.
+- `hazard_incidents`: generic incident envelope with `hazard_type` (`wildfire` or `earthquake`), source aggregate id, lifecycle, scene status, and public/internal projection state.
 
 Timescale hypertables are used for high-volume detection observations, external-call telemetry, queue events, and delivery attempts. Large rasters and generated maps are stored in S3-compatible object storage and referenced by immutable object keys.
 
@@ -490,6 +583,8 @@ Object key conventions:
 - Static dispatch maps: `dispatch/maps/{dispatch_id}/{rendered_at}.png`.
 - Camera frames: `camera-frames/{camera_id}/{captured_at}.jpg`.
 - Model artifacts: `models/fire-spread/{model_version}/{artifact_name}`.
+- Earthquake products: `earthquakes/{usgs_event_id}/{product_type}/{product_version}/{artifact_name}`.
+- Earthquake impact rasters: `ml/quake-impact/{usgs_event_id}/{model_version}/{generated_at}.tif`.
 
 ### 6.4 Eventing and Realtime
 
@@ -499,6 +594,9 @@ Redis is used for cache, rate limits, distributed locks, pub/sub, and queue coor
 - `detection.verified`
 - `fire_context.ready`
 - `prediction.ready`
+- `earthquake.detected`
+- `earthquake.updated`
+- `earthquake.impact.ready`
 - `incident.internal.updated`
 - `incident.public.updated`
 - `dispatch.requested`
@@ -508,6 +606,8 @@ Redis is used for cache, rate limits, distributed locks, pub/sub, and queue coor
 - `system.integration.degraded`
 
 Socket.IO bridges internal events to the Dispatcher Console. Public clients receive only `incident.public.updated`, a server-redacted event with no station details, private dispatch payloads, partner secrets, internal audit metadata, FIRMS confidence score, or exact hotspot coordinates. Reconnecting clients use event sequence numbers or a since-token to recover missed updates.
+
+Earthquake public events may include USGS event id, title/place, event time, magnitude, rounded depth, threat band, PAGER color, MMI/CDI if present, tsunami flag, and rounded epicenter/geohash. They must not include unit IDs, responder data, internal scene status, dispatch payloads, exact critical infrastructure targets, raw USGS detail JSON, or partner metadata.
 
 ### 6.5 Failure Modes
 
@@ -520,6 +620,9 @@ The backend must prefer delayed, explicit state over silent failure:
 - PostgreSQL outage halts ingestion and dispatch mutations and fails readiness checks.
 - Dispatch cannot auto-send when verification, station lookup, idempotency, or payload signing fails. It must create an auditable blocked state.
 - Webhook fan-out must not block ingestion, prediction, or console updates.
+- USGS earthquake feed outage sets source-specific degraded health and uses FDSN reconciliation on recovery. It must not block wildfire ingest.
+- USGS event deletion/supersession creates a resolved/tombstoned incident version, not a hard delete.
+- Missing ShakeMap/PAGER/DYFI detail products creates partial earthquake impact context with reliability flags.
 
 Acceptance criteria:
 
@@ -528,6 +631,7 @@ Acceptance criteria:
 - Service ownership and data ownership are documented with no overlapping write paths.
 - All externally triggered mutations require idempotency keys.
 - Spatial and time indexes are defined for detection, station, dispatch, and event-outbox queries.
+- Earthquake event ids and aliases are unique/idempotent, versioned, and replayable from database state.
 
 ## 7. API and Contract Requirements
 
@@ -546,6 +650,9 @@ All internal APIs require short-lived JWTs or service credentials and emit OpenT
 | `POST` | `/detections/{id}/verify` | Verification trigger | Idempotent, enqueues job, returns current job state. |
 | `POST` | `/detections/{id}/context` | Enrichment trigger | Builds or refreshes `FireContext`. |
 | `POST` | `/predict/spread` | ML spread prediction | Returns the §5.5 contract: horizons at 1h, 6h, 24h with 25/50/75 percent contours, raster references, cache state, inference latency, and input hash. |
+| `POST` | `/predict/impact` | ML earthquake impact prediction | Returns the §5.7 contract: threat score/band, intensity/impact rings, exposure summary, reliability, model version, cache state, and input hash. |
+| `GET` | `/earthquakes` | Query earthquake events | Supports bbox, time window, min magnitude, threat band, review status, and tsunami flag. |
+| `GET` | `/earthquakes/{usgs_event_id}` | Earthquake detail | Returns current normalized event, version history summary, products, impact, dispatch/scene status, and audit summary. |
 | `GET` | `/stations/nearby` | Station search | Requires bbox or radius query; internal only. |
 | `POST` | `/dispatches` | Dispatch decision and delivery | Requires detection id, actor or automation policy, and idempotency key. |
 | `GET` | `/dispatches/{id}/audit` | Dispatch audit read | Internal only; redacts partner secrets. |
@@ -561,6 +668,7 @@ The public API is read-only except webhook subscription management. It must be h
 | `GET` | `/metrics` | Metrics scrape | Prometheus-compatible metrics. |
 | `GET` | `/v1/alerts` | Public alert list | Redacted alerts by bbox, severity, status, and time window. |
 | `GET` | `/v1/alerts/{id}` | Public alert detail | No PII, no station routing, no sensitive provenance. |
+| `GET` | `/v1/earthquakes/{usgs_event_id}` | Public earthquake detail | Redacted public-safe event, threat band, public impact rings, and official source links. |
 | `POST` | `/v1/webhooks/subscriptions` | Create subscription | API key required; stores secret reference only. |
 | `GET` | `/v1/webhooks/subscriptions` | List subscriptions | Partner scoped. |
 | `PATCH` | `/v1/webhooks/subscriptions/{id}` | Update subscription | Rotates signing secret through secrets manager flow. |
@@ -595,6 +703,8 @@ Dispatcher and admin users authenticate through an OIDC/SAML-ready identity prov
 - FIRMS ingestion input normalization and confidence filtering.
 - Detection, verification, fire context, prediction, incident, and dispatch event payloads.
 - `POST /predict/spread` request and response payloads in `packages/contracts/predict-spread.ts`.
+- `POST /predict/impact` request and response payloads in `packages/contracts/predict-impact.ts`.
+- Earthquake detection, impact, public/internal event, scene status, and webhook payloads.
 - Public alert DTO redaction.
 - Webhook signature envelope.
 - Dispatch payload shape with station ETA candidates and ML contours.
@@ -669,6 +779,44 @@ Every external dispatch attempt records signed payload hash, destination, respon
 
 Stage 6 camera adapters must be isolated behind an interface with provider-specific credentials and view-cone filters. Camera stills and classifier outputs are attachments to detections and dispatches, not prerequisites for FIRMS ingestion or initial dispatch.
 
+### 8.6 Earthquake Ingestion and Impact Enrichment
+
+Default earthquake ingestion uses official USGS sources:
+
+- Primary: USGS real-time GeoJSON summary feeds, defaulting to `all_hour.geojson` plus `significant_hour.geojson` for priority handling.
+- Reconciliation/backfill: USGS FDSN Event Catalog API with `format=geojson` and `updatedafter` for missed updates, reviewed revisions, deleted events, and product additions.
+- Detail enrichment: each summary feature's `properties.detail` URL for products such as ShakeMap, PAGER, DYFI, moment tensor, and focal mechanism.
+
+USGS default feeds do not require an app key. Future partner credentials must be represented only as placeholders in `.env.example` and real values must live in local `.env.local` or secret managers.
+
+Acceptance criteria:
+
+- Poll configured USGS feeds every 60 seconds by default and record feed URL, HTTP status, latency, `metadata.generated`, feature count, and high-watermark `properties.updated`.
+- Normalize USGS feature fields into UTC timestamps, WGS84 epicenter points with depth km, magnitude, magnitude type, review status, tsunami flag, felt count, CDI, MMI, PAGER alert, significance, URLs, and source aliases.
+- Use USGS `feature.id` as canonical source id and persist aliases from `properties.ids`, `properties.net`, `properties.code`, and `properties.sources`.
+- Enforce idempotency on `(source='usgs', source_event_id)` while appending immutable event versions for newer `properties.updated` values.
+- Compute deterministic `threat_score` and `threat_band` before any ML impact model is available.
+- Persist raw USGS summary/detail JSON as internal provenance only; never expose raw blobs on public APIs.
+- Emit `earthquake.detected`, `earthquake.updated`, and `earthquake.impact.ready` outbox events with schema versions and sequence metadata.
+
+Threat scoring inputs:
+
+- PAGER alert: red = `CRITICAL`, orange = `HIGH` or `CRITICAL`, yellow = `HIGH`, green = `LOW` or `MODERATE` depending on other signals.
+- MMI/CDI: VIII+ critical, VI-VII high, IV-V moderate.
+- Magnitude/depth: large shallow earthquakes escalate; deep events reduce baseline unless PAGER/MMI/tsunami contradicts.
+- `tsunami=1`: escalate at least one band and mark coastal alert routing.
+- Felt count: aggregate corroboration only; use log buckets, not individual DYFI data.
+
+### 8.7 Earthquake Dispatch and Scene Status
+
+Earthquake dispatch is recommendation-only unless an operator explicitly confirms.
+
+- High threat, PAGER yellow+, tsunami flag, or MMI VI+ creates an internal dispatch recommendation and nearest agency/station candidates.
+- Scene lifecycle: `monitoring`, `recommended`, `dispatched`, `on_scene`, `assessing`, `needs_mutual_aid`, `resolved`, `false_alarm`, `duplicate`, `muted`.
+- CAD callbacks and operator actions update scene status and append audit entries.
+- Earthquake dispatch payloads include hazard type, USGS event id, threat rationale, source timestamps, impact rings, affected region, resource candidates, and idempotency key.
+- Public surfaces never expose unit IDs, responder data, internal scene status, or operational routing.
+
 ## 9. Infrastructure and Operations
 
 ### 9.1 Local Development
@@ -730,6 +878,8 @@ Required dashboards:
 
 Alerts page on ingestion staleness, worker backlog, DB saturation, Redis outage, webhook failure spikes, provider degradation, and SLO burn rate. Sentry captures application errors with sensitive fields scrubbed before export.
 
+Earthquake dashboards additionally track USGS poll freshness, FDSN reconciliation lag, event upsert/update/delete counts, detail product fetch latency/failures, threat-band distribution, public earthquake alert latency, and scene-status updates.
+
 ### 9.5 Data Retention and Recovery
 
 - Raw ingestion provenance: retain at least 24 months.
@@ -751,6 +901,8 @@ Release order:
 2. Limited dispatcher pilot with manual dispatch confirmation.
 3. Agency opt-in dispatch integrations.
 4. Automated dispatch recommendations only after audit logs, agency validation, and manual override paths are proven.
+5. Earthquake read-only mode: USGS ingest, internal console visibility, public-safe alerts, and no dispatch.
+6. Earthquake dispatcher pilot: manual earthquake dispatch recommendations, scene-status tracking, and model impact overlays marked advisory.
 
 Dispatch integrations must be disableable without redeploy.
 
@@ -764,6 +916,9 @@ Dispatch integrations must be disableable without redeploy.
 - Public Alerts API: p95 under 300 ms for cached bbox reads.
 - Webhook fan-out: first delivery attempt within 10 seconds of eligible event.
 - Public API uptime: 99.9 percent after production launch.
+- Earthquake USGS poll to database commit: p95 under 5 seconds after provider response.
+- Earthquake event to Dispatcher Console event: p95 under 90 seconds.
+- Earthquake public alert update: p95 under 30 seconds after public-safe event persistence.
 
 ### 10.2 Reliability
 
@@ -774,6 +929,8 @@ Dispatch integrations must be disableable without redeploy.
 - Queue and event consumers must tolerate duplicate and out-of-order events.
 - FIRMS outage marks the source degraded and never synthesizes detections.
 - ML inference timeout or invalid output suppresses prediction attachment but preserves the detection workflow.
+- USGS outage marks the earthquake source degraded and never synthesizes events.
+- Earthquake event revisions, supersessions, and deletions are idempotent and versioned.
 
 ### 10.3 Security and Privacy
 
@@ -783,6 +940,7 @@ Dispatch integrations must be disableable without redeploy.
 - Webhook payloads are signed and include replay protection.
 - Admin and dispatch actions are audit logged with actor, role/service, tenant/agency, timestamp, source IP where applicable, request id, action, target, outcome, and immutable payload summary.
 - Public surfaces expose no PII, no internal station availability, no responder identity, no camera metadata, no partner secrets, and no private dispatch metadata.
+- Public earthquake surfaces expose no unit status, station candidates, exact critical infrastructure targets, raw USGS detail JSON, partner metadata, or internal threat rationale.
 - Address searches are not persisted unless explicitly needed for alert subscriptions.
 - Logs and traces scrub tokens, API keys, phone numbers, emails, webhook secrets, and provider credentials.
 
@@ -806,6 +964,8 @@ Danger-zone tests must be written before implementation:
 - API key scope enforcement and public DTO redaction.
 - Authorization tests for privilege escalation across roles.
 - Log redaction tests for secrets and sensitive contact fields.
+- USGS earthquake parser, alias extraction, upsert/versioning, threat scoring, public/internal redaction, and deletion/supersession tests.
+- `POST /predict/impact` output shape and reliability/degraded-mode tests.
 
 Release candidates require unit tests, integration tests for provider adapters with mocks, Docker Compose smoke tests, and k6 load checks for ingestion/public reads before production rollout.
 
@@ -830,6 +990,10 @@ These need a HANDOFF discussion + ADR before the corresponding feature lands:
 4. **Public Map verification surface.** Do we show `UNREPORTED` (satellite-only) on the public map, or only `EMERGING+`? Suppression risks hiding a real fire from civilians; surfacing risks alarm. Proposed: `EMERGING+` only in v1, with an admin override per region. Owner: Claude. Action: ADR before §4.2 ships.
 5. **Model-card publication.** Public or internal-only? Proposed: public — wildfire ML benefits from external scrutiny. Owner: Claude. Action: ADR before first production model promotion.
 6. **License.** Repo currently has no LICENSE. Proposed: source-available with a non-commercial clause for v1; revisit pre-launch. Owner: shared. Action: ADR before any external commit.
+7. **Earthquake source escalation.** Should v1 stay USGS GeoJSON/ComCat only, or add ShakeAlert/partner feeds for jurisdictions that have access? Proposed: USGS only for default open-source path; partner feeds require an ADR and secrets plan. Owner: Codex + Claude. Action: ADR before Stage 7.
+8. **Public earthquake precision.** Should public earthquake surfaces show exact USGS epicenter coordinates or rounded/geohashed coordinates? Proposed: round/geohash by default for consistency, with exact source-link available to USGS. Owner: shared. Action: ADR before public earthquake launch.
+9. **Earthquake threat thresholds.** What minimum magnitude/threat band appears on the public map by default? Proposed: hide `LOW` automatic events publicly; show `MODERATE+` and reviewed events. Owner: shared. Action: ADR before Stage 7 UI/API.
+10. **Quake-impact training labels.** Which historical damage/exposure labels are legally and operationally acceptable for model training? Proposed: start with USGS PAGER/ShakeMap and public FEMA/agency summaries; no private dispatch outcome training until agreements exist. Owner: Claude. Action: ADR before Stage 8.
 
 ## Appendix B — PRD revision history
 
@@ -838,3 +1002,4 @@ These need a HANDOFF discussion + ADR before the corresponding feature lands:
 | v0 §1–5 | 2026-05-02 | claude | Initial draft on `docs/prd-claude`. |
 | v0 §6–10 | 2026-05-02 | codex | Initial backend/API/infra/integrations/NFR draft merged in PR #1. |
 | v0 integrated | 2026-05-02 | codex | Combined §1–5 and §6–10, preserving Appendix A ADR queue. |
+| v0.1 earthquake delta | 2026-05-02 | codex | Adds multi-hazard earthquake scope, USGS ingest, shockwave/impact visualization, quake-impact ML, contracts, APIs, dispatch, and NFR deltas. |

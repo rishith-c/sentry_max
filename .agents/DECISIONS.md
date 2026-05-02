@@ -79,3 +79,21 @@ Use PostgreSQL/PostGIS/TimescaleDB as the durable source of truth. Write event o
 ### Consequences
 
 Realtime delivery stays fast without making Redis durable state. Consumers must tolerate duplicate and out-of-order events, and replay tooling can reconstruct missed publications from the outbox.
+
+## ADR-0005 - Default Earthquake Data Source and Scope
+
+- Date: 2026-05-02
+- Status: proposed
+- Owners: codex, claude
+
+### Context
+
+The user requested earthquake support in addition to wildfire detection, including detection, shockwave visualization, threat level, scene status, and a custom AI impact algorithm. The system needs an authoritative, open default source that can be implemented without secret-bearing partner agreements.
+
+### Decision
+
+Use USGS real-time GeoJSON summary feeds as the default earthquake detection source and USGS FDSN Event Catalog API for reconciliation, backfill, updates, and deletion/supersession handling. Use USGS detail products such as ShakeMap, PAGER, and DYFI when available. Do not claim earthquake early warning, do not replace ShakeAlert, and do not issue official earthquake, tsunami, evacuation, shelter, bridge, or structural-safety orders.
+
+### Consequences
+
+The default earthquake path needs no API key and can be built/tested with public official data. Partner feeds, ShakeAlert access, or jurisdiction-specific seismic networks require a later ADR, credential plan, and public-safety review. Earthquake public DTOs must be redacted separately from internal dispatcher/scene-state payloads.

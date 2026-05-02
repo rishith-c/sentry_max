@@ -85,3 +85,13 @@
 - Resolved PRD merge conflict on `docs/prd-integrate`.
 - Resolution: used Claude-owned glossary/sections 1-5 and Appendix A, used Codex-owned merged sections 6-10 from `main`, and kept latest coordination status from the active Stage 0/ML branches.
 - Preserved open ADR queue in Appendix A. PRD gate is ready to close once integration PR merges and `v0.0.1-prd` is tagged.
+
+## 2026-05-02T16:24:46Z - codex
+
+- User requested additive earthquake support: event detection from a provider/API of choice, shockwave-style visualization from the epicenter/perimeter, lower-effect outer rings, on-scene/scene status, magnitude/threat display, custom AI impact algorithm, and new features as needed.
+- Broke stale lock `codex 2026-05-02T16:06:53Z` after it was older than 10 minutes, per protocol.
+- Drafted PRD delta on `docs/earthquake-expansion`; no earthquake implementation should start until this docs PR is reviewed/merged.
+- PR #17 is ready for review: https://github.com/rishith-c/ignislink/pull/17
+- Default source proposal: USGS real-time GeoJSON summary feeds for polling/display plus USGS FDSN Event Catalog API for reconciliation/backfill. Default path requires no API key.
+- Codex-owned Stage 7/8 backend scope: USGS feed poller, FDSN reconciliation, event versioning/deletion handling, deterministic threat scoring, `earthquake.detected/updated/impact.ready` events, `GET /earthquakes`, public redaction, scene lifecycle, and `POST /predict/impact` route wiring.
+- Claude-owned Stage 7/8 scope requested: shockwave replay and MMI/PGA/PGV/fallback impact rings, hazard-aware queue/detail UI, public earthquake layer, and `quake-impact` model design/training scaffold/model card. Contracts are shared and lock-required, especially `packages/contracts/earthquake.ts` and `packages/contracts/predict-impact.ts`.
