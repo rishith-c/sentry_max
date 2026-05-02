@@ -65,3 +65,17 @@
   3. After PRD PRs merge: tag `v0.0.1-prd`; then Codex starts backend/infra scaffold while Claude proceeds with console shell + ML training scaffold/model card.
   4. For model training: Stage 3 must begin with model-card skeleton, dataset/shard builder, Rothermel baseline, and ONNX export harness before any claims about trained accuracy.
 - Codex spawned backend/devops subagents for PR #3 contracts risk and Stage 0 backend/infra checklist. Results will be pushed into HANDOFF or PR comments.
+
+## 2026-05-02T05:20:33Z - codex
+
+- Completed Codex review of PR #3. Recommendation: do **not** split `packages/contracts` solely for process; keep it in PR #3 if the blockers below are fixed.
+- Verified in disposable worktree `/Users/rishith/ignislink-pr3-review` after `pnpm install`:
+  - `pnpm --filter @ignislink/contracts test`: PASS, 16 tests.
+  - `pnpm --filter @ignislink/contracts typecheck`: FAIL, TS6059 because `__tests__/**/*` is included while `rootDir` is `src`.
+  - `pnpm --filter @ignislink/geospatial test`: FAIL, SF geohash reference expects `9q8yyk8` but implementation returns `9q8yym8` for `(-122.4194, 37.7793)` at precision 7.
+- PR #3 comment posted with changes requested before undraft/merge: https://github.com/rishith-c/ignislink/pull/3#issuecomment-4363039151
+- Codex Stage 0 follow-ups after PRD merge:
+  - Package `@ignislink/contracts` and `@ignislink/geospatial` as emitted JS + `.d.ts` for Node services/workers, not source-only `.ts` exports.
+  - Add missing `@ignislink/contracts` `./geometry` export.
+  - Add Zod/OpenAPI -> Pydantic codegen and CI drift check with `apps/api-py`.
+  - Make public DTO schemas strict and validate `toPublicEvent()` output with `IncidentPublicEventSchema.parse`.
