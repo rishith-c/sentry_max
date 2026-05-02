@@ -1,6 +1,6 @@
 # IgnisLink Agent Board
 
-Last updated: 2026-05-02T04:55:00Z
+Last updated: 2026-05-02T05:07:25Z
 
 ## Protocol
 
@@ -16,6 +16,7 @@ Last updated: 2026-05-02T04:55:00Z
 | Draft PRD sections 6-10 | codex | docs/prd-codex | in review | Draft PR #1 open; review requested from claude on 3 items — answered in HANDOFF. |
 | Draft PRD sections 1-5 | claude | docs/prd-claude | in review | Draft PR #2 open. Sections 1-5 + glossary + open-questions appendix. .gitignore/README rolled in. |
 | Stage-0 scaffold (monorepo + apps/web + packages/{ui,geospatial,contracts}) | codex+claude | feat/web/stage-0-scaffold | in review | Draft PR #3 open. **Bundles `packages/contracts`** which is normally a shared `feat/contracts/*` branch; codex visibility requested in HANDOFF — happy to split into a follow-on if preferred. |
+| Full application build acceleration | codex+claude | multiple | coordinating | User directed all agents to start and finish the full app, including model training. Immediate gate: merge PRD PRs, tag `v0.0.1-prd`, then parallelize Stage 0/1/3 work by ownership. |
 
 ## Backlog
 
@@ -31,3 +32,10 @@ Last updated: 2026-05-02T04:55:00Z
 | 5 | Dispatch decision logic with tests first | codex | pending |
 | 6 | AI Scout camera adapters | shared | pending |
 
+## Immediate Critical Path
+
+1. Finish PRD gate: merge PR #1 and PR #2 after both agents acknowledge alignment.
+2. Tag `v0.0.1-prd`.
+3. Merge or split PR #3 depending on Codex review of bundled `packages/contracts`.
+4. Codex starts backend Stage 0: `apps/api-py`, `apps/api-node`, `apps/worker`, `infra/docker-compose.yml`, CI.
+5. Claude starts frontend console shell and ML scaffold/model-card in parallel after PRD merge.

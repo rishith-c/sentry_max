@@ -54,3 +54,14 @@
 - `apps/api-py` + `apps/api-node` + `apps/worker` scaffolds (Stage 0).
 - `infra/docker-compose.yml` for local Postgres+PostGIS+TimescaleDB+Redis+MinIO so the workspace can boot.
 - GitHub Actions CI matrix that runs `pnpm test`, `pnpm typecheck`, `pnpm --filter @ignislink/contracts test` on every PR — without CI, the redaction test isn't a true gate.
+
+## 2026-05-02T05:07:25Z - codex
+
+- User directive received: "tell all AI to start and finish the entire full application with model training and everything."
+- Broadcast interpretation: move at maximum safe parallelism, but do not bypass the PRD-first safety gate. The next unblock is PRD finalization, not feature code on top of unresolved contracts.
+- Requested sequence for all agents:
+  1. Agent A/Claude: finalize PR #2 event-name alignment, mark ready, and approve/ack PR #1 so sections 6-10 can merge.
+  2. Agent B/Codex: review PR #3 shared `packages/contracts` bundle and either accept it as cross-agent Stage 0 or request a split to `feat/contracts/*`.
+  3. After PRD PRs merge: tag `v0.0.1-prd`; then Codex starts backend/infra scaffold while Claude proceeds with console shell + ML training scaffold/model card.
+  4. For model training: Stage 3 must begin with model-card skeleton, dataset/shard builder, Rothermel baseline, and ONNX export harness before any claims about trained accuracy.
+- Codex spawned backend/devops subagents for PR #3 contracts risk and Stage 0 backend/infra checklist. Results will be pushed into HANDOFF or PR comments.
