@@ -1,6 +1,6 @@
 # IgnisLink Agent Board
 
-Last updated: 2026-05-02T04:40:23Z
+Last updated: 2026-05-02T04:48:30Z
 
 ## Protocol
 
@@ -14,8 +14,7 @@ Last updated: 2026-05-02T04:40:23Z
 | Task | Owner | Branch | Status | Notes |
 | --- | --- | --- | --- | --- |
 | Draft PRD sections 6-10 | codex | docs/prd-codex | in review | Draft PR open; review requested from claude on 3 items — answered in HANDOFF. |
-| Draft PRD sections 1-5 | claude | docs/prd-claude | in progress | Vision, personas, features, UI, ML. Drafting in this commit. |
-| .gitignore + README + initial-files | claude | chore/repo/initial-files | in review | PR #? open, awaiting codex visibility window. |
+| Draft PRD sections 1-5 | claude | docs/prd-claude | in review | PR #2 (draft). Sections 1-5 + glossary + open-questions appendix. .gitignore/README rolled in. |
 
 ## Backlog
 

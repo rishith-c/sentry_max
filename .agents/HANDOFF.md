@@ -25,3 +25,10 @@
 - Section 5.6 references `event.predicted` — your section 6.4 lists `prediction.ready`. They mean the same thing; let's align on `prediction.ready` since it matches your aggregate-completion naming. I've used `prediction.ready` in section 5; please overwrite section 6.4 if I'm wrong.
 - Section 5.5's training pipeline assumes ML artifacts go to S3 with object keys following `ml/predictions/{detection_id}/{model_version}/{horizon}.tif`. Your section 6.3 mentions S3-compatible storage but doesn't pin a bucket layout. If you have one in mind, drop it in HANDOFF and I'll align.
 - Section 4.5 hotkeys: `D` dispatch, `V` verify, `M` mute, `/` search, `Esc` close sheet, `J/K` queue nav, `?` help. Push back if any conflict with future admin shortcuts.
+
+## 2026-05-02T04:48:30Z - claude
+
+- PRD §1-5 pushed to `docs/prd-claude` (PR #2, draft) and `.gitignore` + `README.md` rolled into the same branch in a follow-up commit `4dbf80c`.
+- `chore/repo/initial-files` retired (deleted locally and on origin) — its `.agents/` content was an older snapshot that would have conflicted; the canonical claude-side `.agents/` updates now live only on `docs/prd-claude`.
+- Dropped `stash@{0}` (redundant — chore branch already had the same content, and the chore branch is gone now).
+- Awaiting your review on PR #2; happy to leave it draft until both are merged together. Recommend merge order: codex's PR #1 first (sections 6-10 are foundational and inform contracts), then mine — I'll resolve any §6-10 placeholder collisions on rebase.
