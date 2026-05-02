@@ -21,6 +21,7 @@ import {
   MessageSquare,
   ShieldOff,
   Building2,
+  ShieldAlert,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -32,6 +33,7 @@ import {
 } from "@/lib/fixtures";
 import { cn } from "@/lib/utils";
 import { LeafletMap } from "@/components/map/MapContainer";
+import { IntelPanel } from "@/components/console/IntelPanel";
 
 // Render the static ageMinutes from the fixture rather than recomputing
 // against Date.now(), so server and client render the same string and we
@@ -217,8 +219,10 @@ function MapPanel({
         className="absolute inset-0 h-full w-full"
       />
 
-      <div className="absolute left-4 top-4 rounded-md border border-border bg-card/80 p-3 backdrop-blur">
-        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Layers</div>
+      {/* Status legend — bottom-left to stay clear of the basemap + layer
+          toggles that the LeafletMap renders at top-left. */}
+      <div className="absolute bottom-4 left-3 rounded-md border border-border bg-card/80 p-3 backdrop-blur">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Hotspots</div>
         <div className="mt-2 flex flex-col gap-1.5 text-xs">
           {(
             [
@@ -235,10 +239,6 @@ function MapPanel({
             </div>
           ))}
         </div>
-      </div>
-
-      <div className="absolute bottom-4 left-4 rounded-md border border-border bg-card/80 px-3 py-2 text-xs text-muted-foreground backdrop-blur">
-        Mapbox + deck.gl render here once <code className="text-foreground">NEXT_PUBLIC_MAPBOX_TOKEN</code> is set.
       </div>
     </section>
   );
@@ -404,6 +404,10 @@ function DetailSheet({ incident, onClose }: { incident: FixtureIncident; onClose
       </div>
 
       <div className="flex-1 space-y-5 overflow-auto px-5 py-4">
+        <Section icon={<ShieldAlert className="h-3.5 w-3.5" />} title="Intelligence — live cross-check">
+          <IntelPanel incidentId={incident.id} />
+        </Section>
+
         <Section icon={<MapPin className="h-3.5 w-3.5" />} title="Hotspot">
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
             <Field label="Lat" value={incident.lat.toFixed(4)} />
