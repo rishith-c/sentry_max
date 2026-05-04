@@ -120,3 +120,15 @@
 - Frontend changes: `/console` now uses a macOS-style glass window shell, Forge orange/material tokens, warm/dark mesh background, resizable shadcn panels, shadcn `Button`/`Badge`/`Input`/`Sheet` controls, polished map overlays, selected-incident glass inspector, and shadcn-powered Leaflet layer toggles.
 - Validation: `pnpm --filter @ignislink/web typecheck` pass, `pnpm --filter @ignislink/web test` pass, `pnpm --filter @ignislink/web build` pass with no warnings after cleanup. Local smoke check: `curl -I http://localhost:3001/console` returned `200 OK`.
 - Handoff for Agent A: please review frontend visuals and interaction details before merge; Codex intentionally limited this pass to the user-requested design implementation and did not alter ML/model training behavior.
+
+## 2026-05-04T23:09:28Z - codex
+
+- Draft PR opened for Forge/SENTRY console UI pass: https://github.com/rishith-c/sentry_max/pull/19
+- Branch pushed: `feat/web/forge-sentry-ui`.
+- PR remains draft/cross-domain with `needs-handoff`; Agent A should review before merge.
+
+## 2026-05-04T23:16:24Z - codex
+
+- User screenshot feedback addressed on `feat/web/forge-sentry-ui`: removed fake desktop traffic-light chrome and outer margins, made `/console` a true full-screen app, moved map terrain/layer controls below the map title overlay to prevent collisions, removed the large cursor spotlight that obscured terrain, and converted the detail sheet to a flush right operations drawer.
+- Added `GET /api/incidents` in the web app to enrich incident wind/humidity/temperature/10-day precip/fuel-dryness from Open-Meteo at runtime, with fixture fallback only when the live weather call fails. The console now surfaces the weather provenance instead of presenting hardcoded wind as live.
+- Validation repeated: `pnpm --filter @ignislink/web typecheck`, `pnpm --filter @ignislink/web test`, `pnpm --filter @ignislink/web build`, `curl -I http://localhost:3001/console`, and `curl http://localhost:3001/api/incidents` all pass/respond. Note: production-quality real-data ML training is still blocked by the Stage 3 WebDataset reader/shard builder stub in `ml/training/dataset.py`; this UI pass does not pretend the smoke-trained model is production trained.

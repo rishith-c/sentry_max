@@ -509,9 +509,9 @@ export function LeafletMap({
         aria-hidden
       />
 
-      {/* Basemap toggle — top-left so the detail sheet (which slides in from
-          the right and covers the right ~520px of the map) never hides it. */}
-      <div className="absolute left-3 top-3 z-[401] flex gap-1 rounded-[12px] border border-white/10 bg-black/[0.42] p-1 backdrop-blur-2xl">
+      {/* Basemap toggle sits below the map title overlay so controls never
+          collide with the operational context cards. */}
+      <div className="absolute left-4 top-[92px] z-[401] flex gap-1 rounded-[12px] border border-white/10 bg-black/[0.58] p-1 backdrop-blur-2xl">
         {(["streets", "satellite", "terrain"] as const).map((b) => (
           <Button
             key={b}
@@ -529,9 +529,8 @@ export function LeafletMap({
         ))}
       </div>
 
-      {/* Layer toggles — left-stacked under the basemap toggle so both stay
-          visible when the right-side detail sheet is open. */}
-      <div className="absolute left-3 top-14 z-[401] flex flex-col gap-1 rounded-[12px] border border-white/10 bg-black/[0.42] p-1 backdrop-blur-2xl">
+      {/* Layer toggles continue below the terrain picker. */}
+      <div className="absolute left-4 top-[132px] z-[401] flex flex-col gap-1 rounded-[12px] border border-white/10 bg-black/[0.58] p-1 backdrop-blur-2xl">
         <Button
           type="button"
           variant="ghost"

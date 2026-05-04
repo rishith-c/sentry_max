@@ -23,7 +23,6 @@ import {
   Send,
   ShieldAlert,
   ShieldOff,
-  Sparkles,
   Truck,
   Wind,
 } from "lucide-react";
@@ -52,6 +51,34 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
+type EnvironmentalInputs = {
+  source: "open-meteo" | "fixture-fallback";
+  sampledAt: string;
+  humidityPct: number | null;
+  temperatureC: number | null;
+  precip10dMm: number | null;
+  fuelDryness: number | null;
+};
+
+type ConsoleIncident = Omit<FixtureIncident, "observedAt"> & {
+  observedAt: string | Date;
+  environmental?: EnvironmentalInputs;
+};
+
+function withFallbackEnvironmental(incident: FixtureIncident): ConsoleIncident {
+  return {
+    ...incident,
+    environmental: {
+      source: "fixture-fallback",
+      sampledAt: incident.observedAt.toISOString(),
+      humidityPct: null,
+      temperatureC: null,
+      precip10dMm: null,
+      fuelDryness: null,
+    },
+  };
+}
+
 // Render the static ageMinutes from the fixture rather than recomputing
 // against Date.now(), so server and client render the same string and we
 // don't trip a hydration mismatch.
@@ -78,9 +105,30 @@ function hotspotColor(s: VerificationStatus): string {
 }
 
 export default function ConsolePage() {
-  const [selectedId, setSelectedId] = useState<string | null>(FIXTURE_INCIDENTS[0]?.id ?? null);
+  const [incidents, setIncidents] = useState<ConsoleIncident[]>(() =>
+    FIXTURE_INCIDENTS.map(withFallbackEnvironmental),
+  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "active" | "emerging">("active");
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/incidents", { cache: "no-store" })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<{ incidents: ConsoleIncident[] }>;
+      })
+      .then((json) => {
+        if (!cancelled && Array.isArray(json.incidents)) setIncidents(json.incidents);
+      })
+      .catch(() => {
+        if (!cancelled) setIncidents(FIXTURE_INCIDENTS.map(withFallbackEnvironmental));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -91,7 +139,7 @@ export default function ConsolePage() {
   }, []);
 
   const filtered = useMemo(() => {
-    let list = FIXTURE_INCIDENTS;
+    let list = incidents;
     if (filter === "active") {
       list = list.filter(
         (i) =>
@@ -112,27 +160,35 @@ export default function ConsolePage() {
       );
     }
     return list.sort((a, b) => a.ageMinutes - b.ageMinutes);
-  }, [filter, search]);
+  }, [filter, incidents, search]);
 
-  const selected = FIXTURE_INCIDENTS.find((i) => i.id === selectedId) ?? null;
+  const selected = incidents.find((i) => i.id === selectedId) ?? null;
 
-  const activeCount = FIXTURE_INCIDENTS.filter(
+  const activeCount = incidents.filter(
     (i) => i.verification === "EMERGING" || i.verification === "CREWS_ACTIVE",
   ).length;
-  const emergingCount = FIXTURE_INCIDENTS.filter((i) => i.verification === "EMERGING").length;
+  const emergingCount = incidents.filter((i) => i.verification === "EMERGING").length;
+  const windSource = incidents.some((i) => i.environmental?.source === "open-meteo")
+    ? "Open-Meteo wind"
+    : "fixture fallback";
 
   return (
-    <main className="sentry-forge-bg text-foreground h-screen overflow-hidden p-2 sm:p-5 lg:p-7">
+    <main className="sentry-forge-bg text-foreground h-screen overflow-hidden p-0">
       <motion.div
         initial={{ opacity: 0, y: 12, scale: 0.985 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.55, ease: [0.34, 1.56, 0.64, 1] }}
-        className="sentry-window mx-auto flex h-full max-h-[1100px] min-h-0 w-full max-w-[1800px] flex-col"
+        className="bg-[#060609]/82 flex h-full min-h-0 w-full flex-col overflow-hidden backdrop-blur-2xl"
       >
-        <AppChrome activeCount={activeCount} emergingCount={emergingCount} />
+        <AppChrome
+          activeCount={activeCount}
+          emergingCount={emergingCount}
+          totalCount={incidents.length}
+          windSource={windSource}
+        />
 
         <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
-          <ResizablePanel defaultSize={34} minSize={25} maxSize={44}>
+          <ResizablePanel defaultSize={31} minSize={23} maxSize={40}>
             <aside className="flex h-full min-h-0 flex-col border-r border-white/10">
               <QueueHeader
                 filter={filter}
@@ -145,9 +201,9 @@ export default function ConsolePage() {
             </aside>
           </ResizablePanel>
           <ResizableHandle withHandle className="sentry-resize-handle border-0 bg-transparent" />
-          <ResizablePanel defaultSize={66} minSize={56}>
+          <ResizablePanel defaultSize={69} minSize={60}>
             <MapPanel
-              incidents={FIXTURE_INCIDENTS}
+              incidents={incidents}
               selectedId={selectedId}
               selected={selected}
               onSelect={setSelectedId}
@@ -161,24 +217,33 @@ export default function ConsolePage() {
   );
 }
 
-function AppChrome({ activeCount, emergingCount }: { activeCount: number; emergingCount: number }) {
+function AppChrome({
+  activeCount,
+  emergingCount,
+  totalCount,
+  windSource,
+}: {
+  activeCount: number;
+  emergingCount: number;
+  totalCount: number;
+  windSource: string;
+}) {
   return (
-    <header className="flex h-[54px] shrink-0 items-center gap-4 border-b border-white/10 bg-black/[0.18] px-4 backdrop-blur-2xl">
-      <MacTrafficLights />
+    <header className="flex h-[60px] shrink-0 items-center gap-4 border-b border-white/10 bg-black/[0.28] px-5 backdrop-blur-2xl">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="sentry-primary-gradient flex h-8 w-8 items-center justify-center rounded-[9px]">
-          <Flame className="h-4 w-4" aria-hidden />
+        <span className="sentry-primary-gradient flex h-9 w-9 items-center justify-center rounded-[10px]">
+          <Flame className="h-5 w-5" aria-hidden />
         </span>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold leading-none">SENTRY Dispatcher</h1>
+            <h1 className="text-base font-semibold leading-none">SENTRY Dispatcher</h1>
             <Badge className="hidden border-white/10 bg-white/[0.08] text-[10px] font-medium text-zinc-200 shadow-none sm:inline-flex">
-              Forge handoff
+              Operations
             </Badge>
           </div>
           <div className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-400">
             <span className="sentry-live-dot h-1.5 w-1.5 rounded-full bg-[var(--forge-orange)]" />
-            <span>live satellite, weather, routing and dispatch queue</span>
+            <span>satellite detections · {windSource} · routing and dispatch queue</span>
           </div>
         </div>
       </div>
@@ -186,22 +251,12 @@ function AppChrome({ activeCount, emergingCount }: { activeCount: number; emergi
       <div className="ml-auto hidden items-center gap-2 lg:flex">
         <Stat label="Active" value={activeCount} tone="emerald" icon={<Activity />} />
         <Stat label="Emerging" value={emergingCount} tone="orange" icon={<AlertTriangle />} />
-        <Stat label="24h Total" value={FIXTURE_INCIDENTS.length} tone="zinc" icon={<Radar />} />
+        <Stat label="24h Total" value={totalCount} tone="zinc" icon={<Radar />} />
         <Badge className="ml-1 gap-1.5 border-white/10 bg-white/[0.08] px-2.5 py-1 text-[11px] font-medium text-zinc-300 shadow-none">
           <CommandIcon className="h-3.5 w-3.5" />/ command
         </Badge>
       </div>
     </header>
-  );
-}
-
-function MacTrafficLights() {
-  return (
-    <div className="flex shrink-0 items-center gap-2" aria-hidden>
-      <span className="h-3 w-3 rounded-full bg-[#ff5f57] shadow-[inset_0_-1px_0_rgba(0,0,0,0.24)]" />
-      <span className="h-3 w-3 rounded-full bg-[#ffbd2e] shadow-[inset_0_-1px_0_rgba(0,0,0,0.24)]" />
-      <span className="h-3 w-3 rounded-full bg-[#28c840] shadow-[inset_0_-1px_0_rgba(0,0,0,0.24)]" />
-    </div>
   );
 }
 
@@ -249,8 +304,8 @@ function QueueHeader({
       <div className="flex items-center justify-between gap-3">
         <div>
           <Badge className="mb-2 gap-1.5 border-white/10 bg-white/[0.08] px-2 py-1 text-[11px] font-medium text-zinc-300 shadow-none">
-            <Sparkles className="h-3.5 w-3.5 text-[var(--forge-orange-light)]" />
-            fire-spread.onnx
+            <Layers3 className="h-3.5 w-3.5 text-[var(--forge-orange-light)]" />
+            spread model inputs
           </Badge>
           <h2 className="text-xl font-semibold leading-tight">Incident queue</h2>
           <p className="mt-1 text-xs text-zinc-400">
@@ -300,7 +355,7 @@ function Queue({
   selectedId,
   onSelect,
 }: {
-  incidents: FixtureIncident[];
+  incidents: ConsoleIncident[];
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
@@ -332,7 +387,7 @@ function QueueItem({
   index,
   onSelect,
 }: {
-  incident: FixtureIncident;
+  incident: ConsoleIncident;
   selected: boolean;
   index: number;
   onSelect: (id: string) => void;
@@ -393,6 +448,23 @@ function QueueItem({
                 {incident.firmsConfidence}
               </span>
             </span>
+            <span className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-zinc-500">
+              <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5">
+                {incident.environmental?.source === "open-meteo"
+                  ? "Open-Meteo wind"
+                  : "wind fallback"}
+              </span>
+              {typeof incident.environmental?.humidityPct === "number" && (
+                <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5">
+                  RH {Math.round(incident.environmental.humidityPct)}%
+                </span>
+              )}
+              {typeof incident.environmental?.fuelDryness === "number" && (
+                <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5">
+                  dryness {Math.round(incident.environmental.fuelDryness * 100)}%
+                </span>
+              )}
+            </span>
 
             <span className="mt-3 flex items-center justify-between gap-3 text-[11px] text-zinc-400">
               <span className="min-w-0 truncate">
@@ -423,24 +495,15 @@ function MapPanel({
   selected,
   onSelect,
 }: {
-  incidents: FixtureIncident[];
+  incidents: ConsoleIncident[];
   selectedId: string | null;
-  selected: FixtureIncident | null;
+  selected: ConsoleIncident | null;
   onSelect: (id: string) => void;
 }) {
-  const [spotlight, setSpotlight] = useState({ x: 68, y: 28 });
-
   return (
     <section
       className="sentry-map-stage relative h-full min-h-0 overflow-hidden bg-[#060609]"
       aria-label="Live wildfire map"
-      onPointerMove={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        setSpotlight({
-          x: ((event.clientX - rect.left) / rect.width) * 100,
-          y: ((event.clientY - rect.top) / rect.height) * 100,
-        });
-      }}
     >
       <LeafletMap
         incidents={incidents.map((i) => ({
@@ -451,6 +514,10 @@ function MapPanel({
           status: i.verification,
           windDirDeg: i.windDirDeg,
           windSpeedMs: i.windSpeedMs,
+          fuelFactor:
+            typeof i.environmental?.fuelDryness === "number"
+              ? Math.max(0.35, Math.min(1, i.environmental.fuelDryness))
+              : undefined,
           predictedSpread: i.predictedSpread.map((p) => ({
             horizonMin: p.horizonMin,
             areaAcres: p.areaAcres,
@@ -472,14 +539,6 @@ function MapPanel({
         className="absolute inset-0 h-full w-full"
       />
 
-      <div
-        className="pointer-events-none absolute inset-0 z-[402] opacity-70 mix-blend-screen"
-        style={{
-          background: `radial-gradient(circle at ${spotlight.x}% ${spotlight.y}%, rgba(255, 107, 53, 0.18), transparent 24%)`,
-        }}
-        aria-hidden
-      />
-
       <div className="pointer-events-none absolute left-4 right-4 top-4 z-[403] flex items-start justify-between gap-3">
         <div className="sentry-glass rounded-[14px] px-3.5 py-3">
           <div className="flex items-center gap-2 text-xs font-medium text-zinc-200">
@@ -491,8 +550,8 @@ function MapPanel({
           </div>
         </div>
         <div className="hidden items-center gap-2 xl:flex">
-          <GlassPill icon={<Navigation />} label="HRRR wind" value="60m fresh" />
-          <GlassPill icon={<Route />} label="Mapbox ETA" value="3 stations" />
+          <GlassPill icon={<Navigation />} label="Weather input" value="live/fallback" />
+          <GlassPill icon={<Route />} label="Terrain" value="map/topo/satellite" />
           <GlassPill icon={<Activity />} label="Socket bridge" value="online" />
         </div>
       </div>
@@ -546,7 +605,7 @@ function MapLegend() {
   );
 }
 
-function SelectedMapCard({ incident }: { incident: FixtureIncident }) {
+function SelectedMapCard({ incident }: { incident: ConsoleIncident }) {
   return (
     <motion.div
       key={incident.id}
@@ -578,8 +637,12 @@ function SelectedMapCard({ incident }: { incident: FixtureIncident }) {
         <MiniMetric label="FRP" value={`${incident.fireRadiativePower.toFixed(0)} MW`} />
         <MiniMetric label="Wind" value={`${incident.windSpeedMs.toFixed(1)} m/s`} />
         <MiniMetric
-          label="ETA"
-          value={incident.stations[0] ? `${incident.stations[0].etaMinutes} min` : "n/a"}
+          label="Dryness"
+          value={
+            typeof incident.environmental?.fuelDryness === "number"
+              ? `${Math.round(incident.environmental.fuelDryness * 100)}%`
+              : "n/a"
+          }
         />
       </div>
     </motion.div>
@@ -595,7 +658,42 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DetailSheet({ incident, onClose }: { incident: FixtureIncident; onClose: () => void }) {
+function EnvironmentalGrid({ environmental }: { environmental?: EnvironmentalInputs }) {
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+      <MiniMetric
+        label="Weather"
+        value={environmental?.source === "open-meteo" ? "Open-Meteo" : "fallback"}
+      />
+      <MiniMetric
+        label="RH"
+        value={
+          typeof environmental?.humidityPct === "number"
+            ? `${Math.round(environmental.humidityPct)}%`
+            : "n/a"
+        }
+      />
+      <MiniMetric
+        label="10d precip"
+        value={
+          typeof environmental?.precip10dMm === "number"
+            ? `${environmental.precip10dMm.toFixed(1)} mm`
+            : "n/a"
+        }
+      />
+      <MiniMetric
+        label="Fuel dryness"
+        value={
+          typeof environmental?.fuelDryness === "number"
+            ? `${Math.round(environmental.fuelDryness * 100)}%`
+            : "n/a"
+        }
+      />
+    </div>
+  );
+}
+
+function DetailSheet({ incident, onClose }: { incident: ConsoleIncident; onClose: () => void }) {
   const dispatchable =
     incident.verification === "EMERGING" || incident.verification === "UNREPORTED";
 
@@ -609,7 +707,7 @@ function DetailSheet({ incident, onClose }: { incident: FixtureIncident; onClose
       <SheetContent
         side="right"
         overlayClassName="bg-black/10 backdrop-blur-[1px]"
-        className="sentry-glass-strong inset-y-6 right-6 flex h-[calc(100vh-3rem)] w-[min(520px,calc(100vw-3rem))] max-w-none flex-col rounded-[16px] border-white/[0.15] p-0 shadow-2xl sm:max-w-none"
+        className="sentry-glass-strong inset-y-0 right-0 flex h-screen w-[min(560px,100vw)] max-w-none flex-col rounded-none border-y-0 border-r-0 border-white/[0.15] p-0 shadow-2xl sm:max-w-none"
         aria-label={`Incident ${incident.shortId} detail`}
       >
         <SheetHeader className="space-y-2 border-b border-white/10 px-5 py-4 pr-12 text-left">
@@ -662,7 +760,7 @@ function DetailSheet({ incident, onClose }: { incident: FixtureIncident; onClose
             <Section
               icon={<Wind className="h-3.5 w-3.5" />}
               title="Wind and spread"
-              subtitle="ML contour horizons"
+              subtitle="Environmental inputs and ML contour horizons"
             >
               <div className="flex items-center gap-4">
                 <WindRose dirDeg={incident.windDirDeg} speedMs={incident.windSpeedMs} />
@@ -671,10 +769,14 @@ function DetailSheet({ incident, onClose }: { incident: FixtureIncident; onClose
                     {incident.windSpeedMs.toFixed(1)} m/s @ {Math.round(incident.windDirDeg)}° from
                   </div>
                   <div className="mt-1 text-zinc-400">
-                    HRRR cycle · 60 min freshness · spread cache hot
+                    {incident.environmental?.source === "open-meteo"
+                      ? "Open-Meteo current weather"
+                      : "Fixture fallback; live weather unavailable"}{" "}
+                    · spread model input
                   </div>
                 </div>
               </div>
+              <EnvironmentalGrid environmental={incident.environmental} />
               {incident.predictedSpread.length > 0 ? (
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   {incident.predictedSpread.map((p) => (
