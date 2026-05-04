@@ -132,3 +132,11 @@
 - User screenshot feedback addressed on `feat/web/forge-sentry-ui`: removed fake desktop traffic-light chrome and outer margins, made `/console` a true full-screen app, moved map terrain/layer controls below the map title overlay to prevent collisions, removed the large cursor spotlight that obscured terrain, and converted the detail sheet to a flush right operations drawer.
 - Added `GET /api/incidents` in the web app to enrich incident wind/humidity/temperature/10-day precip/fuel-dryness from Open-Meteo at runtime, with fixture fallback only when the live weather call fails. The console now surfaces the weather provenance instead of presenting hardcoded wind as live.
 - Validation repeated: `pnpm --filter @ignislink/web typecheck`, `pnpm --filter @ignislink/web test`, `pnpm --filter @ignislink/web build`, `curl -I http://localhost:3001/console`, and `curl http://localhost:3001/api/incidents` all pass/respond. Note: production-quality real-data ML training is still blocked by the Stage 3 WebDataset reader/shard builder stub in `ml/training/dataset.py`; this UI pass does not pretend the smoke-trained model is production trained.
+
+## 2026-05-04T23:53:43Z - codex
+
+- User requested a clean localhost restart and a stronger model run. Codex stopped the existing localhost listeners, started PR #19 from a clean worktree at `/Users/rishith/ignislink-forge-ui`, and verified `http://localhost:3000/console` plus `GET /api/incidents`.
+- Added explicit MPS/GPU accelerator support to `ml/training/train.py` while preserving CPU as the default for deterministic tests.
+- Trained a bounded local fire-spread candidate on Apple MPS: 5.1M-parameter U-Net+ConvLSTM, 3 epochs, 24 synthetic Rothermel-supervised training samples, 8 validation samples, 48x48 grid, best checkpoint `ml/checkpoints/prod-candidate-bounded/fire-spread-smoke-epoch=02-val_loss=1.289.ckpt`, elapsed 471.9s.
+- Exported and verified `ml/models/fire-spread-prod-candidate-bounded.onnx`; ONNXRuntime max delta vs PyTorch was `1.19e-07`.
+- Evidence: `python3 -m pytest ml/__tests__/test_smoke_train.py ml/__tests__/test_export_onnx.py` passed (4 tests). This is still not a real-data production model because `WebDatasetShardDataset` and FIRMS/HRRR/LANDFIRE/SRTM shard building remain stubbed in Stage 3.
