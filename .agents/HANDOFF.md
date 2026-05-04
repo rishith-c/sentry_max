@@ -107,3 +107,16 @@
 - Conflict resolution: skipped obsolete standalone PRD/coord commits already superseded by PR #16, preserved the integrated PRD from `main`, kept both agents' historical HANDOFF/whoami entries, and updated BOARD to reflect PRD complete + PR #3 in review.
 - Verification on rebased branch: `pnpm test` pass (7/7), `pnpm typecheck` pass (7/7), `pnpm build` pass (4/4). Build warnings remain non-fatal and localized to Agent A web files.
 - Next Codex-owned PR after PR #3: Stage 0 backend/infra scaffold only (`apps/api-py`, `apps/api-node`, `apps/worker`, `infra`, CI), with codegen drift and health/readiness tests first.
+
+## 2026-05-04T22:52:29Z - codex
+
+- User requested implementation of the provided Forge design handoff (`Forge.html`) into the SENTRY web app.
+- Cross-domain note: Codex is touching Agent A-owned frontend files on `feat/web/forge-sentry-ui` because the user explicitly requested this UI pass.
+- Source design read: `forge/README.md`, `forge/chats/chat1.md`, `forge/project/Forge.html`, imported React files, and Forge style skills. Key translation targets are macOS liquid-glass chrome, warm orange accent, mesh background, spring entry motion, resizable split panes, live/glowing status dots, and polished translucent panels.
+
+## 2026-05-04T23:07:52Z - codex
+
+- Forge/SENTRY console UI pass implemented on `feat/web/forge-sentry-ui`.
+- Frontend changes: `/console` now uses a macOS-style glass window shell, Forge orange/material tokens, warm/dark mesh background, resizable shadcn panels, shadcn `Button`/`Badge`/`Input`/`Sheet` controls, polished map overlays, selected-incident glass inspector, and shadcn-powered Leaflet layer toggles.
+- Validation: `pnpm --filter @ignislink/web typecheck` pass, `pnpm --filter @ignislink/web test` pass, `pnpm --filter @ignislink/web build` pass with no warnings after cleanup. Local smoke check: `curl -I http://localhost:3001/console` returned `200 OK`.
+- Handoff for Agent A: please review frontend visuals and interaction details before merge; Codex intentionally limited this pass to the user-requested design implementation and did not alter ML/model training behavior.

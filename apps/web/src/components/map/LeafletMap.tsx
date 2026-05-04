@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import L, { type Map as LMap, type Marker as LMarker } from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export type IncidentStatus =
   | "EMERGING"
@@ -74,14 +76,12 @@ const TILE_LAYERS = {
   },
   satellite: {
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution:
-      "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, USGS, USDA FSA",
+    attribution: "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, USGS, USDA FSA",
     maxZoom: 18,
   },
   terrain: {
     url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-    attribution:
-      'Map data © <a href="https://opentopomap.org/">OpenTopoMap</a> (CC-BY-SA)',
+    attribution: 'Map data © <a href="https://opentopomap.org/">OpenTopoMap</a> (CC-BY-SA)',
     maxZoom: 17,
   },
 };
@@ -162,12 +162,13 @@ export function LeafletMap({
     tileLayerRef.current = tileLayer;
 
     mapRef.current = map;
+    const markers = markersRef.current;
 
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       map.remove();
       mapRef.current = null;
-      markersRef.current.clear();
+      markers.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -253,7 +254,10 @@ export function LeafletMap({
       // along the bearing. Drawn from largest (24h, faintest) inward to (1h,
       // strongest) so the smaller ones stay visible on top.
       if (showContours && inc.predictedSpread && inc.predictedSpread.length > 0) {
-        const horizonStyles: Record<60 | 360 | 1440, { stroke: string; fill: string; weight: number; dash?: string }> = {
+        const horizonStyles: Record<
+          60 | 360 | 1440,
+          { stroke: string; fill: string; weight: number; dash?: string }
+        > = {
           60: { stroke: color, fill: color, weight: 2 },
           360: { stroke: color, fill: color, weight: 1.5, dash: "4 4" },
           1440: { stroke: color, fill: color, weight: 1, dash: "2 6" },
@@ -278,7 +282,12 @@ export function LeafletMap({
         // Wind-direction line emanating from the hotspot (~ to the 6 h ellipse tip).
         const six = inc.predictedSpread.find((p) => p.horizonMin === 360);
         if (six) {
-          const tip = offsetByMeters(inc.lat, inc.lon, areaAcresToMajorRadiusM(six.areaAcres), six.bearingDeg);
+          const tip = offsetByMeters(
+            inc.lat,
+            inc.lon,
+            areaAcresToMajorRadiusM(six.areaAcres),
+            six.bearingDeg,
+          );
           const arrow = L.polyline([[inc.lat, inc.lon], tip], {
             color: color,
             weight: 1.5,
@@ -301,21 +310,29 @@ export function LeafletMap({
             iconSize: [24, 24],
             iconAnchor: [12, 12],
           });
-          const stnMarker = L.marker([stn.lat, stn.lon], { icon: stnIcon })
-            .bindTooltip(`${stn.name} · ${stn.etaMinutes} min ETA`, {
+          const stnMarker = L.marker([stn.lat, stn.lon], { icon: stnIcon }).bindTooltip(
+            `${stn.name} · ${stn.etaMinutes} min ETA`,
+            {
               direction: "top",
               offset: [0, -8],
               opacity: 0.92,
-            });
+            },
+          );
           stationLayerRef.current!.addLayer(stnMarker);
 
           // Faint dotted line from station to hotspot.
-          const conn = L.polyline([[stn.lat, stn.lon], [inc.lat, inc.lon]], {
-            color: "rgba(228,228,231,0.18)",
-            weight: 1,
-            dashArray: "1 4",
-            interactive: false,
-          });
+          const conn = L.polyline(
+            [
+              [stn.lat, stn.lon],
+              [inc.lat, inc.lon],
+            ],
+            {
+              color: "rgba(228,228,231,0.18)",
+              weight: 1,
+              dashArray: "1 4",
+              interactive: false,
+            },
+          );
           stationLayerRef.current!.addLayer(conn);
         }
       }
@@ -393,10 +410,7 @@ export function LeafletMap({
       spawnAccum -= spawnEach;
 
       const sources = incidentsRef.current.filter(
-        (i) =>
-          i.status === "EMERGING" ||
-          i.status === "UNREPORTED" ||
-          i.status === "CREWS_ACTIVE",
+        (i) => i.status === "EMERGING" || i.status === "UNREPORTED" || i.status === "CREWS_ACTIVE",
       );
 
       if (spawnEach > 0) {
@@ -485,7 +499,7 @@ export function LeafletMap({
 
   return (
     <div
-      className={className ?? "relative w-full overflow-hidden rounded-lg border border-border"}
+      className={className ?? "border-border relative w-full overflow-hidden rounded-lg border"}
       style={{ height }}
     >
       <div ref={containerRef} className="absolute inset-0 z-0" />
@@ -497,48 +511,54 @@ export function LeafletMap({
 
       {/* Basemap toggle — top-left so the detail sheet (which slides in from
           the right and covers the right ~520px of the map) never hides it. */}
-      <div className="absolute left-3 top-3 z-[401] flex gap-1 rounded-md border border-border bg-card/90 p-1 backdrop-blur">
+      <div className="absolute left-3 top-3 z-[401] flex gap-1 rounded-[12px] border border-white/10 bg-black/[0.42] p-1 backdrop-blur-2xl">
         {(["streets", "satellite", "terrain"] as const).map((b) => (
-          <button
+          <Button
             key={b}
+            type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => setBasemap(b)}
-            className={`rounded px-2 py-1 text-[10px] font-medium uppercase tracking-wide transition ${
-              basemap === b
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={cn(
+              "h-7 rounded-[9px] px-2 text-[10px] font-medium uppercase text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100",
+              basemap === b && "sentry-primary-gradient text-white hover:text-white",
+            )}
           >
             {b === "streets" ? "Map" : b === "satellite" ? "Sat" : "Topo"}
-          </button>
+          </Button>
         ))}
       </div>
 
       {/* Layer toggles — left-stacked under the basemap toggle so both stay
           visible when the right-side detail sheet is open. */}
-      <div className="absolute left-3 top-14 z-[401] flex flex-col gap-1 rounded-md border border-border bg-card/90 p-1 backdrop-blur">
-        <button
+      <div className="absolute left-3 top-14 z-[401] flex flex-col gap-1 rounded-[12px] border border-white/10 bg-black/[0.42] p-1 backdrop-blur-2xl">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
           onClick={() => setShowContours((v) => !v)}
-          className={`rounded px-2 py-1 text-[10px] font-medium uppercase tracking-wide transition ${
-            showContours
-              ? "bg-primary/80 text-primary-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
+          className={cn(
+            "h-7 rounded-[9px] px-2 text-[10px] font-medium uppercase text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100",
+            showContours && "sentry-primary-gradient text-white hover:text-white",
+          )}
           title="ML predicted 50% spread @ 1h / 6h / 24h"
         >
           ML spread
-        </button>
+        </Button>
         {!publicOnly && (
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => setShowStations((v) => !v)}
-            className={`rounded px-2 py-1 text-[10px] font-medium uppercase tracking-wide transition ${
-              showStations
-                ? "bg-primary/80 text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={cn(
+              "h-7 rounded-[9px] px-2 text-[10px] font-medium uppercase text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100",
+              showStations && "sentry-primary-gradient text-white hover:text-white",
+            )}
             title="Nearest fire stations"
           >
             Stations
-          </button>
+          </Button>
         )}
       </div>
     </div>
