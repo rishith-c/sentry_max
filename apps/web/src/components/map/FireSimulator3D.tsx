@@ -1,20 +1,27 @@
 "use client";
 
-// 3D fire-spread visualizer. React Three Fiber + drei.
+// 3D fire-spread visualizer — v2 (research-driven rebuild).
 //
-// Patterns drawn from the research report:
-// - GPU instanced ember sprites advected by a wind vector field (the
-//   live windDirDeg / windSpeedMs from Open-Meteo, not hardcoded).
-// - Heightmap-displaced terrain plane with shaded hillshade for context.
-// - Additive-blended billboards for the fire core + a small smoke column.
-// - OrbitControls for inspection.
+// What landed:
+//   - Fire that spreads on the GROUND via a per-cell CA mask sampled by the
+//     terrain (ported from pgermon/wildfire's wind-biased rule table +
+//     andrewkchan/fire-simulation's GPGPU pattern, simplified to CPU at 96^2).
+//   - Landmark labels (drei <Text> via <Billboard>) — cities, ridges, water,
+//     highways, and the incident itself.
+//   - Animated dispatched units with ETA labels travelling along a
+//     CatmullRomCurve3 from base → incident, ease-out arrival (slow-near).
+//   - Wind-advected ember particles + smoke column (kept from v1).
+//   - Pure-black scene background to match the staple-derived UI tokens.
 //
-// The component is self-contained and doesn't require WebGL2-only features.
-// Particle count auto-tunes to 5 k on mobile / 12 k on desktop.
+// Refs:
+//   https://github.com/pgermon/wildfire (CA wind-biased rule table)
+//   https://github.com/andrewkchan/fire-simulation (GPGPU CA pattern)
+//   https://github.com/vasturiano/r3f-globe (label/path animation patterns)
+//   https://threejs.org/docs/#api/en/extras/curves/CatmullRomCurve3
 
-import { useRef, useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
+import { OrbitControls, Text, Billboard, Stars } from "@react-three/drei";
 import * as THREE from "three";
 
 interface ResourceMarker {
@@ -25,24 +32,27 @@ interface ResourceMarker {
   etaMinutes: number;
 }
 
+interface Landmark {
+  x: number;
+  z: number;
+  label: string;
+  kind: "city" | "ridge" | "water" | "highway";
+}
+
 interface FireSimulator3DProps {
-  /** Wind direction the wind is blowing TOWARDS, in degrees clockwise from north. */
   windDirDeg: number;
-  /** 10-m wind speed in m/s. */
   windSpeedMs: number;
-  /** Predicted spread polygon area at t+1h (acres). */
   predicted1hAcres?: number;
-  /** Predicted spread polygon area at t+6h (acres). */
   predicted6hAcres?: number;
-  /** Predicted spread polygon area at t+24h (acres). */
   predicted24hAcres?: number;
-  /** Risk band — drives ember intensity + fire-core color. */
   risk?: "LOW" | "MODERATE" | "HIGH" | "CRITICAL";
-  /** Aerial / ground resources approaching the incident. */
   resources?: ResourceMarker[];
-  /** Lower the particle count for low-end devices. */
+  landmarks?: Landmark[];
   lowDetail?: boolean;
 }
+
+const TERRAIN_SIZE = 40;
+const TERRAIN_RES = 96;
 
 const RISK_COLORS: Record<NonNullable<FireSimulator3DProps["risk"]>, [number, number, number]> = {
   LOW: [1.0, 0.86, 0.45],
@@ -51,48 +61,200 @@ const RISK_COLORS: Record<NonNullable<FireSimulator3DProps["risk"]>, [number, nu
   CRITICAL: [1.0, 0.18, 0.05],
 };
 
-/**
- * Heightmap terrain — fbm noise on a plane geometry, displaced via vertex
- * positions. Cheap, deterministic, no external assets.
- */
-function Terrain() {
-  const mesh = useRef<THREE.Mesh>(null!);
-  const geometry = useMemo(() => {
-    const geo = new THREE.PlaneGeometry(40, 40, 128, 128);
+const DEFAULT_LANDMARKS: Landmark[] = [
+  { x: -8, z: -10, label: "Pollock Pines", kind: "city" },
+  { x: 12, z: -6, label: "Camino", kind: "city" },
+  { x: -14, z: 6, label: "Sly Park Reservoir", kind: "water" },
+  { x: 6, z: 14, label: "US-50", kind: "highway" },
+  { x: 14, z: 12, label: "Carson Ridge", kind: "ridge" },
+];
+
+// ─────────────── Terrain heightmap ───────────────
+
+function buildHeightmap(): Float32Array {
+  const h = new Float32Array(TERRAIN_RES * TERRAIN_RES);
+  for (let j = 0; j < TERRAIN_RES; j++) {
+    for (let i = 0; i < TERRAIN_RES; i++) {
+      const x = (i / (TERRAIN_RES - 1)) * 2 - 1;
+      const z = (j / (TERRAIN_RES - 1)) * 2 - 1;
+      const r = Math.sqrt(x * x + z * z);
+      h[j * TERRAIN_RES + i] =
+        0.18 * Math.sin(x * 4.0) +
+        0.14 * Math.cos(z * 3.6) +
+        0.08 * Math.sin((x + z) * 6.0) -
+        0.45 * Math.exp(-r * 1.6);
+    }
+  }
+  return h;
+}
+
+// ─────────────── Fire-spread CA on the GROUND ───────────────
+
+function buildFireGrid(): Float32Array {
+  const g = new Float32Array(TERRAIN_RES * TERRAIN_RES);
+  const c = Math.floor(TERRAIN_RES / 2);
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      g[(c + dy) * TERRAIN_RES + (c + dx)] = 0.85;
+    }
+  }
+  return g;
+}
+
+function stepFire(grid: Float32Array, windX: number, windZ: number, rng: () => number): void {
+  const next = new Float32Array(grid.length);
+  const wMag = Math.min(0.55, Math.hypot(windX, windZ) * 0.04);
+  const wxNorm = wMag === 0 ? 0 : (windX / Math.hypot(windX, windZ)) || 0;
+  const wzNorm = wMag === 0 ? 0 : (windZ / Math.hypot(windX, windZ)) || 0;
+  for (let j = 1; j < TERRAIN_RES - 1; j++) {
+    for (let i = 1; i < TERRAIN_RES - 1; i++) {
+      const idx = j * TERRAIN_RES + i;
+      const cur = grid[idx]!;
+      if (cur >= 1.0) {
+        next[idx] = 1.0;
+        continue;
+      }
+      let influence = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const n = grid[(j + dy) * TERRAIN_RES + (i + dx)]!;
+          if (n <= 0 || n >= 1) continue;
+          const len = Math.hypot(dx, dy);
+          const align = -((dx / len) * wxNorm + (dy / len) * wzNorm);
+          const weight = 0.55 + 0.45 * Math.max(-0.4, align);
+          influence += n * weight * (0.5 + wMag);
+        }
+      }
+      const ignitePressure = influence / 8;
+      let nv = cur;
+      if (cur === 0 && ignitePressure > 0.18 + rng() * 0.06) {
+        nv = 0.45 + rng() * 0.2;
+      } else if (cur > 0 && cur < 1) {
+        nv = Math.min(1.0, cur + 0.018 + rng() * 0.012);
+      }
+      next[idx] = nv;
+    }
+  }
+  grid.set(next);
+}
+
+function fireGridToTexture(grid: Float32Array): THREE.DataTexture {
+  const data = new Uint8Array(TERRAIN_RES * TERRAIN_RES * 4);
+  for (let i = 0; i < grid.length; i++) {
+    const v = grid[i]!;
+    if (v === 0) {
+      data[i * 4] = 0;
+      data[i * 4 + 1] = 0;
+      data[i * 4 + 2] = 0;
+      data[i * 4 + 3] = 0;
+    } else if (v < 1) {
+      data[i * 4] = Math.round(255 * (1 - v * 0.5));
+      data[i * 4 + 1] = Math.round(255 * 0.45 * (1 - v));
+      data[i * 4 + 2] = Math.round(255 * 0.05);
+      data[i * 4 + 3] = 230;
+    } else {
+      data[i * 4] = 30;
+      data[i * 4 + 1] = 18;
+      data[i * 4 + 2] = 12;
+      data[i * 4 + 3] = 230;
+    }
+  }
+  const tex = new THREE.DataTexture(data, TERRAIN_RES, TERRAIN_RES, THREE.RGBAFormat);
+  tex.flipY = false;
+  tex.needsUpdate = true;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  return tex;
+}
+
+function Terrain({
+  fireGridRef,
+  windDirDeg,
+  windSpeedMs,
+}: {
+  fireGridRef: React.MutableRefObject<Float32Array>;
+  windDirDeg: number;
+  windSpeedMs: number;
+}) {
+  const fireMatRef = useRef<THREE.MeshBasicMaterial>(null!);
+  const stepCounter = useRef(0);
+  const rngState = useRef(1);
+  const rng = useMemo(
+    () => () => {
+      let t = (rngState.current += 0x6d2b79f5);
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    },
+    [],
+  );
+
+  const heightmap = useMemo(buildHeightmap, []);
+  const terrainGeo = useMemo(() => {
+    const geo = new THREE.PlaneGeometry(
+      TERRAIN_SIZE,
+      TERRAIN_SIZE,
+      TERRAIN_RES - 1,
+      TERRAIN_RES - 1,
+    );
     const pos = geo.attributes.position!;
     for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const y = pos.getY(i);
-      const r = Math.sqrt(x * x + y * y);
-      // Bowl-shaped terrain pushing away from the fire (visual: fire sits in
-      // a depression, smoke and embers escape outward).
-      const height =
-        Math.sin(x * 0.4) * 0.18 +
-        Math.cos(y * 0.35) * 0.22 +
-        Math.sin((x + y) * 0.6) * 0.12 -
-        Math.exp(-r * 0.18) * 0.45;
-      pos.setZ(i, height);
+      pos.setZ(i, heightmap[i]!);
     }
     geo.computeVertexNormals();
     return geo;
-  }, []);
+  }, [heightmap]);
+
+  const fireGeo = useMemo(() => {
+    const geo = terrainGeo.clone();
+    const pos = geo.attributes.position!;
+    for (let i = 0; i < pos.count; i++) {
+      pos.setZ(i, heightmap[i]! + 0.005);
+    }
+    return geo;
+  }, [heightmap, terrainGeo]);
+
+  const initialTex = useMemo(() => fireGridToTexture(fireGridRef.current), [fireGridRef]);
+
+  useFrame((_, dt) => {
+    stepCounter.current += dt;
+    if (stepCounter.current >= 0.08) {
+      stepCounter.current = 0;
+      const windRad = (windDirDeg * Math.PI) / 180;
+      const windX = Math.sin(windRad) * windSpeedMs;
+      const windZ = -Math.cos(windRad) * windSpeedMs;
+      stepFire(fireGridRef.current, windX, windZ, rng);
+      const tex = fireGridToTexture(fireGridRef.current);
+      if (fireMatRef.current) {
+        fireMatRef.current.map?.dispose();
+        fireMatRef.current.map = tex;
+        fireMatRef.current.needsUpdate = true;
+      }
+    }
+  });
+
   return (
-    <mesh ref={mesh} geometry={geometry} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-      <meshStandardMaterial
-        color="#1a1410"
-        roughness={0.95}
-        metalness={0.0}
-        flatShading
-      />
-    </mesh>
+    <group rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh geometry={terrainGeo} receiveShadow>
+        <meshStandardMaterial color="#1a1a1a" roughness={0.95} metalness={0} flatShading />
+      </mesh>
+      <mesh geometry={fireGeo}>
+        <meshBasicMaterial
+          ref={fireMatRef}
+          map={initialTex}
+          transparent
+          opacity={0.95}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+    </group>
   );
 }
 
-/**
- * Instanced GPU ember system. Each ember is a small additive billboard.
- * Advection is applied per-frame: position += wind_vec * dt + buoyancy_up,
- * with a per-particle lifetime that resets at the fire core when expired.
- */
+// ─────────────── Embers + smoke ───────────────
+
 function Embers({
   windDirDeg,
   windSpeedMs,
@@ -106,28 +268,22 @@ function Embers({
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const dummy = useMemo(() => new THREE.Object3D(), []);
-
-  // Per-particle state (CPU-side; cheap enough for 12k @ 60 fps on M1).
-  const state = useMemo(() => {
-    const arr = new Array(count).fill(null).map(() => ({
-      x: (Math.random() - 0.5) * 0.4,
-      y: Math.random() * 0.2,
-      z: (Math.random() - 0.5) * 0.4,
-      vy: 0.4 + Math.random() * 0.8,
-      life: Math.random() * 1.0,
-      ttl: 1.5 + Math.random() * 2.0,
-    }));
-    return arr;
-  }, [count]);
-
-  // Wind vector (meteorological convention: wind FROM direction is the
-  // direction the wind is blowing TOWARDS; we already get "towards" from
-  // Open-Meteo's wind_direction_10m so we use it directly to advect particles).
+  const state = useMemo(
+    () =>
+      new Array(count).fill(null).map(() => ({
+        x: (Math.random() - 0.5) * 0.4,
+        y: Math.random() * 0.2,
+        z: (Math.random() - 0.5) * 0.4,
+        vy: 0.3 + Math.random() * 0.6,
+        life: Math.random(),
+        ttl: 1.4 + Math.random() * 2.0,
+      })),
+    [count],
+  );
   const windRad = (windDirDeg * Math.PI) / 180;
-  const windScale = Math.min(0.6, windSpeedMs * 0.06);
-  const windX = Math.sin(windRad) * windScale;
-  const windZ = -Math.cos(windRad) * windScale;
-
+  const wScale = Math.min(0.55, windSpeedMs * 0.06);
+  const windX = Math.sin(windRad) * wScale;
+  const windZ = -Math.cos(windRad) * wScale;
   useFrame((_, dt) => {
     if (!meshRef.current) return;
     for (let i = 0; i < count; i++) {
@@ -135,44 +291,35 @@ function Embers({
       if (!p) continue;
       p.life += dt;
       if (p.life > p.ttl) {
-        // Respawn at fire core with random small offset.
         p.x = (Math.random() - 0.5) * 0.4;
         p.y = 0.05;
         p.z = (Math.random() - 0.5) * 0.4;
-        p.vy = 0.4 + Math.random() * 0.9;
+        p.vy = 0.3 + Math.random() * 0.7;
         p.life = 0;
-        p.ttl = 1.4 + Math.random() * 2.4;
+        p.ttl = 1.4 + Math.random() * 2.2;
       }
-      p.x += windX * dt + (Math.random() - 0.5) * 0.05 * dt;
-      p.z += windZ * dt + (Math.random() - 0.5) * 0.05 * dt;
+      p.x += windX * dt;
+      p.z += windZ * dt;
       p.y += p.vy * dt;
-      // Fade vertical velocity as ember rises (cooling).
       p.vy *= 1 - dt * 0.4;
-
       const t = p.life / p.ttl;
-      const scale = (1 - t) * 0.06 + 0.02;
+      const scale = (1 - t) * 0.05 + 0.015;
       dummy.position.set(p.x, p.y, p.z);
       dummy.scale.setScalar(scale);
       dummy.updateMatrix();
       meshRef.current.setMatrixAt(i, dummy.matrix);
-      // Fade color to a deeper red as it cools.
       const fade = 1 - t;
       meshRef.current.setColorAt(
         i,
-        new THREE.Color(
-          riskColor[0] * fade + 0.1 * t,
-          riskColor[1] * fade + 0.04 * t,
-          riskColor[2] * fade,
-        ),
+        new THREE.Color(riskColor[0] * fade + 0.05 * t, riskColor[1] * fade, riskColor[2] * fade),
       );
     }
     meshRef.current.instanceMatrix.needsUpdate = true;
     if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
   });
-
   return (
     <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
-      <sphereGeometry args={[1, 8, 8]} />
+      <sphereGeometry args={[1, 6, 6]} />
       <meshBasicMaterial
         transparent
         opacity={0.85}
@@ -184,13 +331,11 @@ function Embers({
   );
 }
 
-/** Smoke column — a few stretched billboards stacked vertically. */
 function SmokeColumn({ windDirDeg, windSpeedMs }: { windDirDeg: number; windSpeedMs: number }) {
   const group = useRef<THREE.Group>(null!);
   const layers = 6;
   const windRad = (windDirDeg * Math.PI) / 180;
   const drift = Math.min(2.0, windSpeedMs * 0.18);
-
   useFrame(({ clock }) => {
     if (!group.current) return;
     const t = clock.getElapsedTime();
@@ -198,22 +343,20 @@ function SmokeColumn({ windDirDeg, windSpeedMs }: { windDirDeg: number; windSpee
       const phase = i / layers;
       c.position.set(
         Math.sin(windRad) * drift * phase + Math.sin(t + i) * 0.05,
-        0.3 + i * 0.6 + Math.sin(t * 0.6 + i) * 0.04,
+        0.3 + i * 0.5 + Math.sin(t * 0.6 + i) * 0.04,
         -Math.cos(windRad) * drift * phase + Math.cos(t + i) * 0.05,
       );
-      c.rotation.y = t * 0.05 + i;
     });
   });
-
   return (
     <group ref={group}>
       {Array.from({ length: layers }).map((_, i) => (
         <mesh key={i}>
-          <sphereGeometry args={[0.5 + i * 0.18, 12, 12]} />
+          <sphereGeometry args={[0.45 + i * 0.16, 12, 12]} />
           <meshBasicMaterial
             color="#1c1c1f"
             transparent
-            opacity={0.18 - i * 0.018}
+            opacity={0.16 - i * 0.018}
             depthWrite={false}
           />
         </mesh>
@@ -222,21 +365,6 @@ function SmokeColumn({ windDirDeg, windSpeedMs }: { windDirDeg: number; windSpee
   );
 }
 
-/** Fire core — emissive sphere + point light. */
-function FireCore({ color }: { color: [number, number, number] }) {
-  const colorObj = new THREE.Color(color[0], color[1], color[2]);
-  return (
-    <group position={[0, 0.05, 0]}>
-      <mesh>
-        <sphereGeometry args={[0.32, 16, 16]} />
-        <meshBasicMaterial color={colorObj} toneMapped={false} />
-      </mesh>
-      <pointLight color={colorObj} intensity={4} distance={6} decay={2} />
-    </group>
-  );
-}
-
-/** Predicted spread rings at t+1h / t+6h / t+24h. Translucent flat discs. */
 function SpreadRings({
   predicted1hAcres,
   predicted6hAcres,
@@ -246,8 +374,6 @@ function SpreadRings({
   predicted6hAcres?: number;
   predicted24hAcres?: number;
 }) {
-  // Acres → world-units radius using a fixed scale. 100 acres ≈ 0.4 km on a
-  // side, our terrain plane is 40 units representing ~5 km, so 1 unit ≈ 125m.
   const ringFor = (acres: number | undefined) => {
     if (!acres || acres <= 0) return null;
     const radiusM = Math.sqrt((acres * 4047) / Math.PI);
@@ -256,71 +382,143 @@ function SpreadRings({
   const r1 = ringFor(predicted1hAcres);
   const r6 = ringFor(predicted6hAcres);
   const r24 = ringFor(predicted24hAcres);
-
   return (
-    <group rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]}>
+    <group rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]}>
       {r1 !== null && (
         <mesh>
           <ringGeometry args={[r1 * 0.95, r1, 64]} />
-          <meshBasicMaterial color="#fde68a" transparent opacity={0.65} side={THREE.DoubleSide} />
+          <meshBasicMaterial color="#fde68a" transparent opacity={0.5} side={THREE.DoubleSide} />
         </mesh>
       )}
       {r6 !== null && (
         <mesh>
           <ringGeometry args={[r6 * 0.97, r6, 64]} />
-          <meshBasicMaterial color="#fb923c" transparent opacity={0.55} side={THREE.DoubleSide} />
+          <meshBasicMaterial color="#fb923c" transparent opacity={0.4} side={THREE.DoubleSide} />
         </mesh>
       )}
       {r24 !== null && (
         <mesh>
           <ringGeometry args={[r24 * 0.98, r24, 64]} />
-          <meshBasicMaterial color="#dc2626" transparent opacity={0.45} side={THREE.DoubleSide} />
+          <meshBasicMaterial color="#dc2626" transparent opacity={0.32} side={THREE.DoubleSide} />
         </mesh>
       )}
     </group>
   );
 }
 
-/** Aerial / ground resources approaching the incident. */
-function ResourceMarkers({ resources }: { resources: ResourceMarker[] }) {
+// ─────────────── Landmarks ───────────────
+
+function Landmarks({ landmarks }: { landmarks: Landmark[] }) {
   return (
     <group>
-      {resources.map((r) => {
-        const angleRad = (r.bearingDeg * Math.PI) / 180;
-        // Distance scaling matches SpreadRings: 1 unit ≈ 125 m, terrain is 40 units.
-        const distUnits = Math.min(18, (r.distanceKm * 1000) / 125);
-        const x = Math.sin(angleRad) * distUnits;
-        const z = -Math.cos(angleRad) * distUnits;
-        const y = r.kind === "helicopter" ? 1.4 : r.kind === "fixed-wing" ? 2.0 : 0.15;
-        const color =
-          r.kind === "helicopter"
-            ? "#22d3ee"
-            : r.kind === "fixed-wing"
-              ? "#a78bfa"
-              : r.kind === "dozer"
-                ? "#fbbf24"
-                : r.kind === "hand-crew"
-                  ? "#34d399"
-                  : "#60a5fa";
-        return (
-          <group key={r.id} position={[x, y, z]}>
-            <mesh>
-              <sphereGeometry
-                args={[r.kind === "fixed-wing" || r.kind === "helicopter" ? 0.18 : 0.12, 12, 12]}
-              />
-              <meshBasicMaterial color={color} toneMapped={false} />
-            </mesh>
-            {/* Ground-track line so the dispatcher can see the approach vector. */}
-            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -y + 0.005, 0]}>
-              <ringGeometry args={[0, 0.18, 16]} />
-              <meshBasicMaterial color={color} transparent opacity={0.35} />
-            </mesh>
-          </group>
-        );
-      })}
+      {landmarks.map((lm, i) => (
+        <Billboard key={i} position={[lm.x, 0.6, lm.z]} follow>
+          <Text
+            fontSize={0.4}
+            color={
+              lm.kind === "city"
+                ? "#ffffff"
+                : lm.kind === "water"
+                  ? "#7dd3fc"
+                  : lm.kind === "highway"
+                    ? "#fde68a"
+                    : "#a3a3a3"
+            }
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.025}
+            outlineColor="#000000"
+            material-toneMapped={false}
+          >
+            {lm.label}
+          </Text>
+        </Billboard>
+      ))}
+      <Billboard position={[0, 1.4, 0]} follow>
+        <Text
+          fontSize={0.5}
+          color="#fb923c"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.04}
+          outlineColor="#000000"
+          material-toneMapped={false}
+        >
+          INCIDENT
+        </Text>
+      </Billboard>
     </group>
   );
 }
+
+// ─────────────── Animated dispatched units ───────────────
+
+function DispatchedUnit({ res }: { res: ResourceMarker }) {
+  const groupRef = useRef<THREE.Group>(null!);
+  const tStart = useRef<number | null>(null);
+  const isAerial = res.kind === "helicopter" || res.kind === "fixed-wing";
+
+  const curve = useMemo(() => {
+    const angleRad = (res.bearingDeg * Math.PI) / 180;
+    const distUnits = Math.min(18, (res.distanceKm * 1000) / 125);
+    const bx = Math.sin(angleRad) * distUnits;
+    const bz = -Math.cos(angleRad) * distUnits;
+    const peakY = isAerial ? 3.2 : 0.4;
+    const start = new THREE.Vector3(bx, isAerial ? 1.2 : 0.2, bz);
+    const mid = new THREE.Vector3(bx * 0.5, peakY, bz * 0.5);
+    const end = new THREE.Vector3(0, isAerial ? 0.8 : 0.15, 0);
+    return new THREE.CatmullRomCurve3([start, mid, end], false, "catmullrom", 0.5);
+  }, [res.kind, res.bearingDeg, res.distanceKm, isAerial]);
+
+  useFrame(({ clock }) => {
+    if (!groupRef.current) return;
+    if (tStart.current === null) tStart.current = clock.getElapsedTime();
+    const sceneDuration = Math.max(4, res.etaMinutes / 4);
+    const t = Math.min(1, (clock.getElapsedTime() - tStart.current) / sceneDuration);
+    const tEased = 1 - Math.pow(1 - t, 2.5);
+    const pos = curve.getPointAt(tEased);
+    groupRef.current.position.copy(pos);
+  });
+
+  const color =
+    res.kind === "helicopter"
+      ? "#22d3ee"
+      : res.kind === "fixed-wing"
+        ? "#a78bfa"
+        : res.kind === "dozer"
+          ? "#fbbf24"
+          : res.kind === "hand-crew"
+            ? "#34d399"
+            : "#60a5fa";
+
+  return (
+    <group ref={groupRef}>
+      <mesh>
+        <sphereGeometry args={[isAerial ? 0.18 : 0.12, 12, 12]} />
+        <meshBasicMaterial color={color} toneMapped={false} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06, 0]}>
+        <ringGeometry args={[0, 0.22, 16]} />
+        <meshBasicMaterial color={color} transparent opacity={0.35} />
+      </mesh>
+      <Billboard position={[0, 0.45, 0]} follow>
+        <Text
+          fontSize={0.22}
+          color="#ffffff"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.02}
+          outlineColor="#000000"
+          material-toneMapped={false}
+        >
+          {`${res.kind.toUpperCase()} · ETA ${res.etaMinutes}m`}
+        </Text>
+      </Billboard>
+    </group>
+  );
+}
+
+// ─────────────── Main scene ───────────────
 
 export function FireSimulator3D({
   windDirDeg,
@@ -330,29 +528,37 @@ export function FireSimulator3D({
   predicted24hAcres,
   risk = "MODERATE",
   resources = [],
+  landmarks = DEFAULT_LANDMARKS,
   lowDetail = false,
 }: FireSimulator3DProps) {
+  const fireGridRef = useRef<Float32Array>(buildFireGrid());
   const riskColor = RISK_COLORS[risk];
-  const emberCount = lowDetail ? 1500 : 4000;
+  const emberCount = lowDetail ? 1500 : 3500;
 
   return (
     <div className="relative h-full w-full bg-black">
       <Canvas
-        camera={{ position: [10, 8, 12], fov: 45, near: 0.1, far: 200 }}
+        camera={{ position: [12, 8, 14], fov: 45, near: 0.1, far: 200 }}
         dpr={[1, 1.5]}
         gl={{ antialias: true, alpha: false }}
       >
-        <color attach="background" args={["#08070a"]} />
-        <ambientLight intensity={0.35} />
+        <color attach="background" args={["#000000"]} />
+        <ambientLight intensity={0.32} />
         <directionalLight position={[8, 10, 5]} intensity={0.6} />
-        <Stars radius={80} depth={50} count={1500} factor={2} fade speed={0.5} />
-        <Terrain />
+        <pointLight
+          position={[0, 0.6, 0]}
+          color={new THREE.Color(riskColor[0], riskColor[1], riskColor[2])}
+          intensity={2.5}
+          distance={10}
+        />
+        <Stars radius={70} depth={50} count={1000} factor={1.6} fade speed={0.3} />
+
+        <Terrain fireGridRef={fireGridRef} windDirDeg={windDirDeg} windSpeedMs={windSpeedMs} />
         <SpreadRings
           predicted1hAcres={predicted1hAcres}
           predicted6hAcres={predicted6hAcres}
           predicted24hAcres={predicted24hAcres}
         />
-        <FireCore color={riskColor} />
         <Embers
           windDirDeg={windDirDeg}
           windSpeedMs={windSpeedMs}
@@ -360,13 +566,17 @@ export function FireSimulator3D({
           count={emberCount}
         />
         <SmokeColumn windDirDeg={windDirDeg} windSpeedMs={windSpeedMs} />
-        <ResourceMarkers resources={resources} />
+        <Landmarks landmarks={landmarks} />
+        {resources.map((r) => (
+          <DispatchedUnit key={r.id} res={r} />
+        ))}
+
         <OrbitControls
           enablePan
           enableZoom
           enableRotate
           minDistance={5}
-          maxDistance={40}
+          maxDistance={45}
           maxPolarAngle={Math.PI / 2.05}
         />
       </Canvas>
