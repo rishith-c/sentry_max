@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import L, { type Map as LMap, type Marker as LMarker } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 export type IncidentStatus =
@@ -509,57 +512,60 @@ export function LeafletMap({
         aria-hidden
       />
 
-      {/* Basemap toggle sits below the map title overlay so controls never
-          collide with the operational context cards. */}
-      <div className="absolute left-4 top-[92px] z-[401] flex gap-1 rounded-[12px] border border-white/10 bg-black/[0.58] p-1 backdrop-blur-2xl">
-        {(["streets", "satellite", "terrain"] as const).map((b) => (
-          <Button
-            key={b}
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setBasemap(b)}
-            className={cn(
-              "h-7 rounded-[9px] px-2 text-[10px] font-medium uppercase text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100",
-              basemap === b && "sentry-primary-gradient text-white hover:text-white",
-            )}
-          >
-            {b === "streets" ? "Map" : b === "satellite" ? "Sat" : "Topo"}
-          </Button>
-        ))}
-      </div>
-
-      {/* Layer toggles continue below the terrain picker. */}
-      <div className="absolute left-4 top-[132px] z-[401] flex flex-col gap-1 rounded-[12px] border border-white/10 bg-black/[0.58] p-1 backdrop-blur-2xl">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowContours((v) => !v)}
-          className={cn(
-            "h-7 rounded-[9px] px-2 text-[10px] font-medium uppercase text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100",
-            showContours && "sentry-primary-gradient text-white hover:text-white",
-          )}
+      {/* Consolidated map controls — single shadcn-styled card. Tabs for the
+          basemap segmented toggle, Switches for the layer toggles. No
+          gradients; uses the workspace's default --primary token. The card
+          sits at top-right (top-left is reserved for the hazard switcher). */}
+      <Card className="absolute right-4 top-4 z-[401] w-[200px] gap-0 border-border/60 bg-card/85 p-2 shadow-lg backdrop-blur-md supports-[backdrop-filter]:bg-card/70">
+        <div className="px-1 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Basemap
+        </div>
+        <Tabs value={basemap} onValueChange={(v) => setBasemap(v as typeof basemap)}>
+          <TabsList className="grid h-7 w-full grid-cols-3 bg-muted/60 p-0.5">
+            <TabsTrigger value="streets" className="h-6 px-2 text-[10px] font-medium uppercase">
+              Map
+            </TabsTrigger>
+            <TabsTrigger value="satellite" className="h-6 px-2 text-[10px] font-medium uppercase">
+              Sat
+            </TabsTrigger>
+            <TabsTrigger value="terrain" className="h-6 px-2 text-[10px] font-medium uppercase">
+              Topo
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <Separator className="my-2" />
+        <div className="px-1 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Layers
+        </div>
+        <label
+          htmlFor="ll-ml-spread"
+          className="flex cursor-pointer items-center justify-between rounded-md px-1.5 py-1 text-[11px] text-foreground hover:bg-muted/60"
           title="ML predicted 50% spread @ 1h / 6h / 24h"
         >
-          ML spread
-        </Button>
+          <span>ML spread</span>
+          <Switch
+            id="ll-ml-spread"
+            checked={showContours}
+            onCheckedChange={setShowContours}
+            className="h-4 w-7 [&>span]:h-3 [&>span]:w-3"
+          />
+        </label>
         {!publicOnly && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowStations((v) => !v)}
-            className={cn(
-              "h-7 rounded-[9px] px-2 text-[10px] font-medium uppercase text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100",
-              showStations && "sentry-primary-gradient text-white hover:text-white",
-            )}
+          <label
+            htmlFor="ll-stations"
+            className="flex cursor-pointer items-center justify-between rounded-md px-1.5 py-1 text-[11px] text-foreground hover:bg-muted/60"
             title="Nearest fire stations"
           >
-            Stations
-          </Button>
+            <span>Stations</span>
+            <Switch
+              id="ll-stations"
+              checked={showStations}
+              onCheckedChange={setShowStations}
+              className="h-4 w-7 [&>span]:h-3 [&>span]:w-3"
+            />
+          </label>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

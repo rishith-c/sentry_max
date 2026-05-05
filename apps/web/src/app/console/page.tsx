@@ -36,7 +36,33 @@ import {
 } from "@/lib/fixtures";
 import { cn } from "@/lib/utils";
 import { LeafletMap } from "@/components/map/MapContainer";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import dynamic from "next/dynamic";
+
+// EarthquakeMap + FloodMap import leaflet at module top-level — leaflet
+// touches `window` so they must be SSR-disabled like FireSimulator3D.
+const EarthquakeMap = dynamic(
+  () => import("@/components/map/EarthquakeMap").then((m) => m.EarthquakeMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full w-full items-center justify-center bg-background text-xs text-muted-foreground">
+        loading earthquake map…
+      </div>
+    ),
+  },
+);
+const FloodMap = dynamic(
+  () => import("@/components/map/FloodMap").then((m) => m.FloodMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full w-full items-center justify-center bg-background text-xs text-muted-foreground">
+        loading flood map…
+      </div>
+    ),
+  },
+);
 
 // 3D fire visualizer is browser-only (three.js); load it client-side.
 const FireSimulator3D = dynamic(
@@ -195,7 +221,7 @@ export default function ConsolePage() {
         initial={{ opacity: 0, y: 12, scale: 0.985 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.55, ease: [0.34, 1.56, 0.64, 1] }}
-        className="bg-[#060609]/82 flex h-full min-h-0 w-full flex-col overflow-hidden backdrop-blur-2xl"
+        className="bg-[#060609]/82 flex h-full min-h-0 w-full flex-col overflow-hidden backdrop-blur-md"
       >
         <AppChrome
           activeCount={activeCount}
@@ -246,9 +272,9 @@ function AppChrome({
   windSource: string;
 }) {
   return (
-    <header className="flex h-[60px] shrink-0 items-center gap-4 border-b border-white/10 bg-black/[0.28] px-5 backdrop-blur-2xl">
+    <header className="flex h-[60px] shrink-0 items-center gap-4 border-b border-white/10 bg-black/[0.28] px-5 backdrop-blur-md">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="sentry-primary-gradient flex h-9 w-9 items-center justify-center rounded-[10px]">
+        <span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <Flame className="h-5 w-5" aria-hidden />
         </span>
         <div className="min-w-0">
@@ -317,7 +343,7 @@ function QueueHeader({
   count: number;
 }) {
   return (
-    <div className="shrink-0 space-y-4 border-b border-white/10 bg-black/[0.12] p-4 backdrop-blur-2xl">
+    <div className="shrink-0 space-y-4 border-b border-white/10 bg-black/[0.12] p-4 backdrop-blur-md">
       <div className="flex items-center justify-between gap-3">
         <div>
           <Badge className="mb-2 gap-1.5 border-white/10 bg-white/[0.08] px-2 py-1 text-[11px] font-medium text-zinc-300 shadow-none">
@@ -355,8 +381,8 @@ function QueueHeader({
             size="sm"
             onClick={() => onFilter(f)}
             className={cn(
-              "h-8 rounded-[9px] text-xs capitalize text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100",
-              filter === f && "sentry-primary-gradient text-white hover:text-white",
+              "h-8 rounded-md text-xs capitalize text-muted-foreground hover:bg-muted hover:text-foreground",
+              filter === f && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
             )}
           >
             {f}
@@ -519,46 +545,42 @@ function MapPanel({
 }) {
   const [hazard, setHazard] = useState<HazardKind>("fire");
   const [view, setView] = useState<ViewMode>("2d");
-  // 3D mode requires a selected fire incident; the other hazards have their
-  // own 3D scenes coming online (earthquake faults, flood inundation rasters).
-  const showing3d = view === "3d" && hazard === "fire" && selected !== null;
+  // 3D auto-picks the first incident if none is selected, so the toggle is
+  // never dead. We also bias the 3D scene to the highest-FRP incident when
+  // there's no explicit selection (it's the most interesting visualisation).
+  const fallback = useMemo(
+    () => [...incidents].sort((a, b) => b.fireRadiativePower - a.fireRadiativePower)[0] ?? null,
+    [incidents],
+  );
+  const sceneIncident = selected ?? fallback;
+  const showing3d = view === "3d" && hazard === "fire" && sceneIncident !== null;
   return (
     <section
       className="sentry-map-stage relative h-full min-h-0 overflow-hidden bg-[#060609]"
       aria-label="Live wildfire map"
     >
-      {showing3d && selected ? (
+      {showing3d && sceneIncident ? (
         <FireSimulator3D
-          windDirDeg={selected.windDirDeg}
-          windSpeedMs={selected.windSpeedMs}
-          predicted1hAcres={selected.predictedSpread.find((p) => p.horizonMin === 60)?.areaAcres}
-          predicted6hAcres={selected.predictedSpread.find((p) => p.horizonMin === 360)?.areaAcres}
+          windDirDeg={sceneIncident.windDirDeg}
+          windSpeedMs={sceneIncident.windSpeedMs}
+          predicted1hAcres={sceneIncident.predictedSpread.find((p) => p.horizonMin === 60)?.areaAcres}
+          predicted6hAcres={sceneIncident.predictedSpread.find((p) => p.horizonMin === 360)?.areaAcres}
           predicted24hAcres={
-            selected.predictedSpread.find((p) => p.horizonMin === 1440)?.areaAcres
+            sceneIncident.predictedSpread.find((p) => p.horizonMin === 1440)?.areaAcres
           }
-          risk="HIGH"
-          resources={selected.stations.slice(0, 6).map((s, idx) => ({
+          risk={sceneIncident.fireRadiativePower > 300 ? "CRITICAL" : sceneIncident.fireRadiativePower > 150 ? "HIGH" : "MODERATE"}
+          resources={sceneIncident.stations.slice(0, 6).map((s, idx) => ({
             id: s.id,
-            kind: idx === 0 ? "helicopter" : idx === 1 ? "fixed-wing" : "engine",
+            kind: idx === 0 ? "helicopter" : idx === 1 ? "fixed-wing" : idx === 2 ? "dozer" : "engine",
             bearingDeg: idx * 60 + 30,
             distanceKm: s.distanceKm ?? 5 + idx * 1.5,
             etaMinutes: s.etaMinutes,
           }))}
         />
       ) : hazard === "earthquake" ? (
-        <HazardComingSoon
-          title="Earthquake aftershock probability"
-          subtitle="ETAS-prior + Neural Hawkes residual"
-          source="USGS GeoJSON feed (all_day)"
-          paperUrl="https://hf.co/papers/2410.08226"
-        />
+        <EarthquakeMap />
       ) : hazard === "flood" ? (
-        <HazardComingSoon
-          title="Flood / river-stage prediction"
-          subtitle="Entity-Aware LSTM (Kratzert 2019)"
-          source="USGS NWIS Instantaneous Values + CAMELS"
-          paperUrl="https://www.nature.com/articles/s41586-024-07145-1"
-        />
+        <FloodMap />
       ) : (
         <LeafletMap
         incidents={incidents.map((i) => ({
@@ -595,62 +617,38 @@ function MapPanel({
         />
       )}
 
-      {/* Hazard switcher + 2D/3D toggle (top-left) */}
+      {/* Hazard switcher + 2D/3D toggle — shadcn Tabs, no gradients. */}
       <div className="absolute left-4 top-4 z-[403] flex flex-col gap-2">
-        <div className="sentry-glass flex gap-1 rounded-[12px] p-1">
-          {(
-            [
-              { k: "fire" as const, label: "Fire" },
-              { k: "earthquake" as const, label: "Earthquake" },
-              { k: "flood" as const, label: "Flood" },
-            ]
-          ).map(({ k, label }) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setHazard(k)}
-              className={cn(
-                "rounded-[8px] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide transition",
-                hazard === k
-                  ? "sentry-primary-gradient text-white"
-                  : "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Tabs value={hazard} onValueChange={(v) => setHazard(v as HazardKind)}>
+          <TabsList className="h-8 bg-card/85 p-0.5 shadow-md backdrop-blur-md">
+            <TabsTrigger value="fire" className="h-7 px-3 text-[10px] font-medium uppercase tracking-wide">
+              Fire
+            </TabsTrigger>
+            <TabsTrigger value="earthquake" className="h-7 px-3 text-[10px] font-medium uppercase tracking-wide">
+              Earthquake
+            </TabsTrigger>
+            <TabsTrigger value="flood" className="h-7 px-3 text-[10px] font-medium uppercase tracking-wide">
+              Flood
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
         {hazard === "fire" && (
-          <div className="sentry-glass flex w-fit gap-1 rounded-[12px] p-1">
-            {(["2d", "3d"] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setView(m)}
-                disabled={m === "3d" && selected === null}
-                className={cn(
-                  "rounded-[8px] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide transition",
-                  view === m
-                    ? "sentry-primary-gradient text-white"
-                    : "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100",
-                  m === "3d" &&
-                    selected === null &&
-                    "cursor-not-allowed opacity-40 hover:bg-transparent",
-                )}
-                title={m === "3d" && selected === null ? "Select an incident first" : undefined}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
+          <Tabs value={view} onValueChange={(v) => setView(v as ViewMode)}>
+            <TabsList className="h-8 w-fit bg-card/85 p-0.5 shadow-md backdrop-blur-md">
+              <TabsTrigger value="2d" className="h-7 px-3 text-[10px] font-medium uppercase tracking-wide">
+                2D
+              </TabsTrigger>
+              <TabsTrigger value="3d" className="h-7 px-3 text-[10px] font-medium uppercase tracking-wide">
+                3D
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         )}
       </div>
 
-      <div className="pointer-events-none absolute right-4 top-4 z-[403] hidden items-center gap-2 xl:flex">
-        <GlassPill icon={<Navigation />} label="Weather input" value="live/fallback" />
-        <GlassPill icon={<Route />} label="Terrain" value="map/topo/satellite" />
-        <GlassPill icon={<Activity />} label="Socket bridge" value="online" />
-      </div>
+      {/* Decorative status pills removed — they competed with the basemap +
+          layers card for the same top-right corner. The legend at bottom-left
+          still indicates the live/fallback state when needed. */}
 
       <MapLegend />
 
@@ -1019,10 +1017,10 @@ function DetailSheet({ incident, onClose }: { incident: ConsoleIncident; onClose
           <Button
             disabled={!dispatchable}
             className={cn(
-              "h-11 w-full rounded-[12px] text-sm font-semibold",
+              "h-11 w-full rounded-md text-sm font-semibold",
               dispatchable
-                ? "sentry-primary-gradient hover:opacity-95"
-                : "cursor-not-allowed border border-white/10 bg-white/[0.08] text-zinc-500",
+                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                : "cursor-not-allowed border border-border bg-muted text-muted-foreground",
             )}
           >
             <Send className="h-4 w-4" />
