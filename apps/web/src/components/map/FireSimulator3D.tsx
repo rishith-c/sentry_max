@@ -19,8 +19,8 @@
 //   https://github.com/vasturiano/r3f-globe (label/path animation patterns)
 //   https://threejs.org/docs/#api/en/extras/curves/CatmullRomCurve3
 
-import { useMemo, useRef } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { useEffect, useMemo, useRef } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Text, Billboard, Stars } from "@react-three/drei";
 import * as THREE from "three";
 
@@ -30,6 +30,10 @@ interface ResourceMarker {
   bearingDeg: number;
   distanceKm: number;
   etaMinutes: number;
+  /** Optional human-readable unit identifier (e.g., "E-28", "H-301"). */
+  name?: string;
+  /** Optional base/station name (e.g., "Pollock Pines Station 28"). */
+  baseName?: string;
 }
 
 interface Landmark {
@@ -71,18 +75,33 @@ const DEFAULT_LANDMARKS: Landmark[] = [
 
 // ─────────────── Terrain heightmap ───────────────
 
+// Pseudo-random for the procedural terrain — deterministic, no extra deps.
+function smoothNoise(x: number, z: number): number {
+  // Multi-octave value-noise replacement via summed sines + a coarser low.
+  return (
+    0.55 * Math.sin(x * 0.9 + Math.cos(z * 0.7) * 1.4) +
+    0.32 * Math.cos(z * 1.3 + x * 0.4) +
+    0.22 * Math.sin((x + z) * 1.7) +
+    0.14 * Math.sin(x * 3.2 + z * 2.6) +
+    0.08 * Math.cos(z * 5.1 - x * 4.0)
+  );
+}
+
 function buildHeightmap(): Float32Array {
   const h = new Float32Array(TERRAIN_RES * TERRAIN_RES);
   for (let j = 0; j < TERRAIN_RES; j++) {
     for (let i = 0; i < TERRAIN_RES; i++) {
-      const x = (i / (TERRAIN_RES - 1)) * 2 - 1;
+      const x = (i / (TERRAIN_RES - 1)) * 2 - 1; // [-1, 1]
       const z = (j / (TERRAIN_RES - 1)) * 2 - 1;
       const r = Math.sqrt(x * x + z * z);
-      h[j * TERRAIN_RES + i] =
-        0.18 * Math.sin(x * 4.0) +
-        0.14 * Math.cos(z * 3.6) +
-        0.08 * Math.sin((x + z) * 6.0) -
-        0.45 * Math.exp(-r * 1.6);
+      // Layered terrain: ridge in the south, valley to the east, fire in
+      // a small basin at the center. The exp() depression at center keeps
+      // the fire visually sunk into the landscape.
+      const ridges = smoothNoise(x * 1.2, z * 1.2) * 0.45;
+      const fineDetail = smoothNoise(x * 4.0, z * 4.0) * 0.08;
+      const slopeBias = z * 0.18; // tilt north-low / south-high
+      const fireBasin = -0.52 * Math.exp(-r * 1.4);
+      h[j * TERRAIN_RES + i] = ridges + fineDetail + slopeBias + fireBasin;
     }
   }
   return h;
@@ -451,14 +470,95 @@ function Landmarks({ landmarks }: { landmarks: Landmark[] }) {
   );
 }
 
+// ─────────────── Web Audio "beep" hook ───────────────
+//
+// Plays a short synth tone the first time a dispatched unit arrives within
+// arrival-radius of the incident. AudioContext is created lazily on the
+// first user gesture so we don't hit Chrome's autoplay policy. Per-unit
+// throttle so a unit beeps exactly once.
+
+function playBeep(freq = 880, durationMs = 220): void {
+  try {
+    const ctx = new (window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + durationMs / 1000);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + durationMs / 1000 + 0.05);
+    osc.onended = () => ctx.close();
+  } catch {
+    /* no-op — AudioContext not available */
+  }
+}
+
+// ─────────────── Fire-station base marker ───────────────
+//
+// Stays at the curve-start point even after the unit has left. Gives the
+// dispatcher a "the engine came from THERE" cue while zoomed out.
+
+function StationBase({
+  position,
+  name,
+  color,
+  isAerial,
+}: {
+  position: THREE.Vector3;
+  name: string;
+  color: string;
+  isAerial: boolean;
+}) {
+  return (
+    <group position={[position.x, isAerial ? 0.25 : 0.05, position.z]}>
+      {/* Pad / helipad disk on the ground. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.32, 0.42, 24]} />
+        <meshBasicMaterial color={color} transparent opacity={0.55} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]}>
+        <circleGeometry args={[0.32, 24]} />
+        <meshBasicMaterial color={color} transparent opacity={0.18} />
+      </mesh>
+      {/* Vertical pole + dot to make the base findable from any angle. */}
+      <mesh position={[0, 0.4, 0]}>
+        <cylinderGeometry args={[0.02, 0.02, 0.8, 6]} />
+        <meshBasicMaterial color={color} transparent opacity={0.6} />
+      </mesh>
+      <mesh position={[0, 0.85, 0]}>
+        <sphereGeometry args={[0.06, 10, 10]} />
+        <meshBasicMaterial color={color} toneMapped={false} />
+      </mesh>
+      <Billboard position={[0, 1.05, 0]} follow>
+        <Text
+          fontSize={0.18}
+          color="#e5e5e5"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.018}
+          outlineColor="#000000"
+          material-toneMapped={false}
+        >
+          {name}
+        </Text>
+      </Billboard>
+    </group>
+  );
+}
+
 // ─────────────── Animated dispatched units ───────────────
 
 function DispatchedUnit({ res }: { res: ResourceMarker }) {
   const groupRef = useRef<THREE.Group>(null!);
   const tStart = useRef<number | null>(null);
+  const beeped = useRef(false);
   const isAerial = res.kind === "helicopter" || res.kind === "fixed-wing";
 
-  const curve = useMemo(() => {
+  const { curve, basePos } = useMemo(() => {
     const angleRad = (res.bearingDeg * Math.PI) / 180;
     const distUnits = Math.min(18, (res.distanceKm * 1000) / 125);
     const bx = Math.sin(angleRad) * distUnits;
@@ -467,17 +567,28 @@ function DispatchedUnit({ res }: { res: ResourceMarker }) {
     const start = new THREE.Vector3(bx, isAerial ? 1.2 : 0.2, bz);
     const mid = new THREE.Vector3(bx * 0.5, peakY, bz * 0.5);
     const end = new THREE.Vector3(0, isAerial ? 0.8 : 0.15, 0);
-    return new THREE.CatmullRomCurve3([start, mid, end], false, "catmullrom", 0.5);
+    return {
+      curve: new THREE.CatmullRomCurve3([start, mid, end], false, "catmullrom", 0.5),
+      basePos: new THREE.Vector3(bx, 0, bz),
+    };
   }, [res.kind, res.bearingDeg, res.distanceKm, isAerial]);
 
   useFrame(({ clock }) => {
     if (!groupRef.current) return;
     if (tStart.current === null) tStart.current = clock.getElapsedTime();
     const sceneDuration = Math.max(4, res.etaMinutes / 4);
-    const t = Math.min(1, (clock.getElapsedTime() - tStart.current) / sceneDuration);
+    const elapsed = clock.getElapsedTime() - tStart.current;
+    const t = Math.min(1, elapsed / sceneDuration);
     const tEased = 1 - Math.pow(1 - t, 2.5);
     const pos = curve.getPointAt(tEased);
     groupRef.current.position.copy(pos);
+    // Arrival beep: triggers once when the unit crosses ~95% of its travel.
+    if (!beeped.current && t >= 0.95) {
+      beeped.current = true;
+      // Pitch by kind — aerial assets ping higher.
+      const freq = isAerial ? 1100 : res.kind === "dozer" ? 540 : 760;
+      playBeep(freq, 240);
+    }
   });
 
   const color =
@@ -491,31 +602,83 @@ function DispatchedUnit({ res }: { res: ResourceMarker }) {
             ? "#34d399"
             : "#60a5fa";
 
+  const baseLabel =
+    res.baseName ?? (isAerial ? `${res.kind.toUpperCase()} BASE` : "STATION");
+  const unitLabel =
+    res.name ?? `${res.kind.toUpperCase()}`;
+
   return (
-    <group ref={groupRef}>
-      <mesh>
-        <sphereGeometry args={[isAerial ? 0.18 : 0.12, 12, 12]} />
-        <meshBasicMaterial color={color} toneMapped={false} />
-      </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06, 0]}>
-        <ringGeometry args={[0, 0.22, 16]} />
-        <meshBasicMaterial color={color} transparent opacity={0.35} />
-      </mesh>
-      <Billboard position={[0, 0.45, 0]} follow>
-        <Text
-          fontSize={0.22}
-          color="#ffffff"
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.02}
-          outlineColor="#000000"
-          material-toneMapped={false}
-        >
-          {`${res.kind.toUpperCase()} · ETA ${res.etaMinutes}m`}
-        </Text>
-      </Billboard>
-    </group>
+    <>
+      <StationBase position={basePos} name={baseLabel} color={color} isAerial={isAerial} />
+      <group ref={groupRef}>
+        <mesh>
+          <sphereGeometry args={[isAerial ? 0.18 : 0.12, 12, 12]} />
+          <meshBasicMaterial color={color} toneMapped={false} />
+        </mesh>
+        {/* Thin emissive trail dot for visibility. */}
+        <pointLight color={color} intensity={1.2} distance={2.4} decay={2} />
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06, 0]}>
+          <ringGeometry args={[0, 0.22, 16]} />
+          <meshBasicMaterial color={color} transparent opacity={0.35} />
+        </mesh>
+        <Billboard position={[0, 0.5, 0]} follow>
+          <Text
+            fontSize={0.22}
+            color="#ffffff"
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.02}
+            outlineColor="#000000"
+            material-toneMapped={false}
+          >
+            {`${unitLabel} · ETA ${res.etaMinutes}m`}
+          </Text>
+        </Billboard>
+      </group>
+    </>
   );
+}
+
+// ─────────────── Cinematic camera intro ───────────────
+//
+// Camera starts wide (showing the whole 5 km × 5 km tile + landmarks +
+// station bases out to ~18 units from center) and eases in to a tighter
+// fire-focused view over ~2.5 s. After the intro, OrbitControls take over.
+
+function CinematicIntro({
+  durationSec = 2.5,
+  startPos = new THREE.Vector3(28, 22, 28),
+  endPos = new THREE.Vector3(12, 8, 14),
+}: {
+  durationSec?: number;
+  startPos?: THREE.Vector3;
+  endPos?: THREE.Vector3;
+}) {
+  const { camera } = useThree();
+  const t0 = useRef<number | null>(null);
+  // Keep the user's scroll/pan after the intro completes — we only steer
+  // the camera while `done` is false.
+  const done = useRef(false);
+
+  // Initialize camera at the wide position on first frame.
+  useEffect(() => {
+    camera.position.copy(startPos);
+    camera.lookAt(0, 0, 0);
+  }, [camera, startPos]);
+
+  useFrame(({ clock }) => {
+    if (done.current) return;
+    if (t0.current === null) t0.current = clock.getElapsedTime();
+    const elapsed = clock.getElapsedTime() - t0.current;
+    const t = Math.min(1, elapsed / durationSec);
+    // Cubic ease-out per the research report.
+    const eased = 1 - Math.pow(1 - t, 3);
+    camera.position.lerpVectors(startPos, endPos, eased);
+    camera.lookAt(0, 0, 0);
+    if (t >= 1) done.current = true;
+  });
+
+  return null;
 }
 
 // ─────────────── Main scene ───────────────
@@ -538,7 +701,7 @@ export function FireSimulator3D({
   return (
     <div className="relative h-full w-full bg-black">
       <Canvas
-        camera={{ position: [12, 8, 14], fov: 45, near: 0.1, far: 200 }}
+        camera={{ position: [28, 22, 28], fov: 45, near: 0.1, far: 200 }}
         dpr={[1, 1.5]}
         gl={{ antialias: true, alpha: false }}
       >
@@ -552,6 +715,11 @@ export function FireSimulator3D({
           distance={10}
         />
         <Stars radius={70} depth={50} count={1000} factor={1.6} fade speed={0.3} />
+
+        {/* Cinematic intro: pulls in from a 28/22/28 wide region view to a
+            12/8/14 fire-focused view over 2.5s on mount. After the intro
+            completes, OrbitControls take full ownership. */}
+        <CinematicIntro />
 
         <Terrain fireGridRef={fireGridRef} windDirDeg={windDirDeg} windSpeedMs={windSpeedMs} />
         <SpreadRings
