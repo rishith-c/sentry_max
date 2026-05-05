@@ -36,6 +36,23 @@ import {
 } from "@/lib/fixtures";
 import { cn } from "@/lib/utils";
 import { LeafletMap } from "@/components/map/MapContainer";
+import dynamic from "next/dynamic";
+
+// 3D fire visualizer is browser-only (three.js); load it client-side.
+const FireSimulator3D = dynamic(
+  () => import("@/components/map/FireSimulator3D").then((m) => m.FireSimulator3D),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full w-full items-center justify-center bg-black text-xs text-zinc-500">
+        loading 3d…
+      </div>
+    ),
+  },
+);
+
+type HazardKind = "fire" | "earthquake" | "flood";
+type ViewMode = "2d" | "3d";
 import { IntelPanel } from "@/components/console/IntelPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -188,8 +205,17 @@ export default function ConsolePage() {
         />
 
         <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
+          <ResizablePanel defaultSize={69} minSize={60}>
+            <MapPanel
+              incidents={incidents}
+              selectedId={selectedId}
+              selected={selected}
+              onSelect={setSelectedId}
+            />
+          </ResizablePanel>
+          <ResizableHandle withHandle className="sentry-resize-handle border-0 bg-transparent" />
           <ResizablePanel defaultSize={31} minSize={23} maxSize={40}>
-            <aside className="flex h-full min-h-0 flex-col border-r border-white/10">
+            <aside className="flex h-full min-h-0 flex-col border-l border-white/10">
               <QueueHeader
                 filter={filter}
                 onFilter={setFilter}
@@ -199,15 +225,6 @@ export default function ConsolePage() {
               />
               <Queue incidents={filtered} selectedId={selectedId} onSelect={setSelectedId} />
             </aside>
-          </ResizablePanel>
-          <ResizableHandle withHandle className="sentry-resize-handle border-0 bg-transparent" />
-          <ResizablePanel defaultSize={69} minSize={60}>
-            <MapPanel
-              incidents={incidents}
-              selectedId={selectedId}
-              selected={selected}
-              onSelect={setSelectedId}
-            />
           </ResizablePanel>
         </ResizablePanelGroup>
       </motion.div>
@@ -500,12 +517,50 @@ function MapPanel({
   selected: ConsoleIncident | null;
   onSelect: (id: string) => void;
 }) {
+  const [hazard, setHazard] = useState<HazardKind>("fire");
+  const [view, setView] = useState<ViewMode>("2d");
+  // 3D mode requires a selected fire incident; the other hazards have their
+  // own 3D scenes coming online (earthquake faults, flood inundation rasters).
+  const showing3d = view === "3d" && hazard === "fire" && selected !== null;
   return (
     <section
       className="sentry-map-stage relative h-full min-h-0 overflow-hidden bg-[#060609]"
       aria-label="Live wildfire map"
     >
-      <LeafletMap
+      {showing3d && selected ? (
+        <FireSimulator3D
+          windDirDeg={selected.windDirDeg}
+          windSpeedMs={selected.windSpeedMs}
+          predicted1hAcres={selected.predictedSpread.find((p) => p.horizonMin === 60)?.areaAcres}
+          predicted6hAcres={selected.predictedSpread.find((p) => p.horizonMin === 360)?.areaAcres}
+          predicted24hAcres={
+            selected.predictedSpread.find((p) => p.horizonMin === 1440)?.areaAcres
+          }
+          risk="HIGH"
+          resources={selected.stations.slice(0, 6).map((s, idx) => ({
+            id: s.id,
+            kind: idx === 0 ? "helicopter" : idx === 1 ? "fixed-wing" : "engine",
+            bearingDeg: idx * 60 + 30,
+            distanceKm: s.distanceKm ?? 5 + idx * 1.5,
+            etaMinutes: s.etaMinutes,
+          }))}
+        />
+      ) : hazard === "earthquake" ? (
+        <HazardComingSoon
+          title="Earthquake aftershock probability"
+          subtitle="ETAS-prior + Neural Hawkes residual"
+          source="USGS GeoJSON feed (all_day)"
+          paperUrl="https://hf.co/papers/2410.08226"
+        />
+      ) : hazard === "flood" ? (
+        <HazardComingSoon
+          title="Flood / river-stage prediction"
+          subtitle="Entity-Aware LSTM (Kratzert 2019)"
+          source="USGS NWIS Instantaneous Values + CAMELS"
+          paperUrl="https://www.nature.com/articles/s41586-024-07145-1"
+        />
+      ) : (
+        <LeafletMap
         incidents={incidents.map((i) => ({
           id: i.id,
           shortId: i.shortId,
@@ -534,32 +589,118 @@ function MapPanel({
             .filter((s) => s.lat !== 0),
           selected: i.id === selectedId,
         }))}
-        onIncidentClick={onSelect}
-        height="100%"
-        className="absolute inset-0 h-full w-full"
-      />
+          onIncidentClick={onSelect}
+          height="100%"
+          className="absolute inset-0 h-full w-full"
+        />
+      )}
 
-      <div className="pointer-events-none absolute left-4 right-4 top-4 z-[403] flex items-start justify-between gap-3">
-        <div className="sentry-glass rounded-[14px] px-3.5 py-3">
-          <div className="flex items-center gap-2 text-xs font-medium text-zinc-200">
-            <Layers3 className="h-4 w-4 text-[var(--forge-orange-light)]" />
-            Wildfire propagation canvas
-          </div>
-          <div className="mt-1 text-[11px] text-zinc-400">
-            ML contours, ember particles, nearest station routes
-          </div>
+      {/* Hazard switcher + 2D/3D toggle (top-left) */}
+      <div className="absolute left-4 top-4 z-[403] flex flex-col gap-2">
+        <div className="sentry-glass flex gap-1 rounded-[12px] p-1">
+          {(
+            [
+              { k: "fire" as const, label: "Fire" },
+              { k: "earthquake" as const, label: "Earthquake" },
+              { k: "flood" as const, label: "Flood" },
+            ]
+          ).map(({ k, label }) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setHazard(k)}
+              className={cn(
+                "rounded-[8px] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide transition",
+                hazard === k
+                  ? "sentry-primary-gradient text-white"
+                  : "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100",
+              )}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        <div className="hidden items-center gap-2 xl:flex">
-          <GlassPill icon={<Navigation />} label="Weather input" value="live/fallback" />
-          <GlassPill icon={<Route />} label="Terrain" value="map/topo/satellite" />
-          <GlassPill icon={<Activity />} label="Socket bridge" value="online" />
-        </div>
+        {hazard === "fire" && (
+          <div className="sentry-glass flex w-fit gap-1 rounded-[12px] p-1">
+            {(["2d", "3d"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setView(m)}
+                disabled={m === "3d" && selected === null}
+                className={cn(
+                  "rounded-[8px] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide transition",
+                  view === m
+                    ? "sentry-primary-gradient text-white"
+                    : "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100",
+                  m === "3d" &&
+                    selected === null &&
+                    "cursor-not-allowed opacity-40 hover:bg-transparent",
+                )}
+                title={m === "3d" && selected === null ? "Select an incident first" : undefined}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="pointer-events-none absolute right-4 top-4 z-[403] hidden items-center gap-2 xl:flex">
+        <GlassPill icon={<Navigation />} label="Weather input" value="live/fallback" />
+        <GlassPill icon={<Route />} label="Terrain" value="map/topo/satellite" />
+        <GlassPill icon={<Activity />} label="Socket bridge" value="online" />
       </div>
 
       <MapLegend />
 
       {selected && <SelectedMapCard incident={selected} />}
     </section>
+  );
+}
+
+function HazardComingSoon({
+  title,
+  subtitle,
+  source,
+  paperUrl,
+}: {
+  title: string;
+  subtitle: string;
+  source: string;
+  paperUrl: string;
+}) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-[#060609] p-6">
+      <div className="sentry-glass-strong max-w-md rounded-[16px] p-6 text-center">
+        <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--forge-orange-light)]">
+          model architecture ready · ingestion pending
+        </div>
+        <h2 className="mb-1 text-lg font-semibold text-zinc-100">{title}</h2>
+        <p className="mb-4 text-sm text-zinc-400">{subtitle}</p>
+        <div className="space-y-2 text-left">
+          <div className="rounded-[10px] border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-400">
+            <span className="text-zinc-500">Live source · </span>
+            <span className="text-zinc-200">{source}</span>
+          </div>
+          <a
+            href={paperUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="block rounded-[10px] border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06]"
+          >
+            <span className="text-zinc-500">Reference · </span>
+            <span className="text-[var(--forge-orange-light)] underline-offset-2 hover:underline">
+              {paperUrl}
+            </span>
+          </a>
+        </div>
+        <p className="mt-4 text-[11px] text-zinc-500">
+          Architecture in <code className="text-zinc-300">ml/models/</code>; tests passing.
+          Live ingestion + inference wiring lands when the API service for this hazard ships.
+        </p>
+      </div>
+    </div>
   );
 }
 
