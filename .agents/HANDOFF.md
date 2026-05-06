@@ -215,3 +215,10 @@
 - **Open coordination notes**:
   - The brief asked for `runFireSpread()` to expose `disposeFireSpreadSession()` for HMR safety; that helper is exported and used in tests but not yet called on R3F unmount. If the console page mounts/unmounts the canvas frequently we'll want to plumb that through.
   - When Agent A's `feat/swarm/dem-wind-grid` and the FIRMS multi-fire branch land, the next consolidation pass should fold `FireSimulator3DOnnxOverlay.tsx`'s Terrain back into `FireSimulator3D.tsx` so the live wrapper picks up DEM + wind grid + ONNX in a single Canvas.
+
+## 2026-05-01T20:18:00Z - agent-a (hackathon swarm / firms-multi-fire)
+
+- Branch: `feat/swarm/firms-multi-fire` (worktree `ignislink-forge-ui`). Touched only `apps/web/src/lib/firms/`, `apps/web/src/components/map/FireSimulator3D.tsx`, `apps/web/src/app/console/page.tsx`, and `apps/web/public/firms-fixture.csv`.
+- Shipped: typed FIRMS CSV client (`apps/web/src/lib/firms/client.ts`) that fetches `VIIRS_NOAA20_NRT` from NASA when `FIRMS_API_KEY` is set and falls back to a 14-row El Dorado County fixture otherwise; bbox→scene projection (`project.ts`) with `bboxFromPoints` + `projectLatLon` round-trip; multi-fire refactor of `FireSimulator3D.tsx` with `hotspots`/`bbox`/`tourMode` props, FRP-scaled per-hotspot ignition seeds in `buildFireGrid()`, `ignitionMaskFromHotspots()`, per-hotspot embers/smoke/labels, and a `CameraTour` + `<TourControls>` overlay (4s/stop, ease-out) wired through `MapPanel` in `console/page.tsx`.
+- Validation: `pnpm --filter @sentry-max/web typecheck` green; `pnpm --filter @sentry-max/web test` → 41/41 pass (10 new in `firms/__tests__/project.test.ts`, 8 new in `firms/__tests__/client.test.ts`).
+- Coexistence note: the file kept oscillating during this session because the sibling `feat/swarm/onnx-in-browser` and `feat/swarm/dem-wind-grid` agents are rewriting `FireSimulator3D.tsx` in parallel; my final `Write` is the v3 multi-fire baseline. When the DEM+wind-grid+ONNX branches converge, fold their `Terrain`/`Embers` props back in alongside my `hotspots`/`bbox`/`tourMode` so all four lives in one canvas.

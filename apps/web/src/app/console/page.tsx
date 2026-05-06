@@ -38,6 +38,7 @@ import {
 import { postDispatch, isOk } from "@/lib/api/client";
 import { useDetectionsStream, type SseStatus } from "@/lib/api/sse";
 import { cn } from "@/lib/utils";
+import { bboxFromPoints } from "@/lib/firms/project";
 import { LeafletMap } from "@/components/map/MapContainer";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import dynamic from "next/dynamic";
@@ -672,6 +673,28 @@ function MapPanel({
   const showing3d =
     (view === "3d" || view === "3d-ai") && hazard === "fire" && sceneIncident !== null;
   const useOnnxModel = view === "3d-ai";
+
+  // FIRMS multi-fire integration: every fire incident becomes a hotspot
+  // for the 3D scene. The bbox is the smallest box covering all visible
+  // incidents (with a small padding) so the projection lines them up
+  // sensibly inside the terrain extent.
+  const fireHotspots = useMemo(
+    () =>
+      incidents.map((i) => ({
+        id: i.id,
+        lat: i.lat,
+        lon: i.lon,
+        frp: i.fireRadiativePower,
+        confidence: i.firmsConfidence,
+        label: i.neighborhood,
+        brightTi4: i.brightTi4,
+      })),
+    [incidents],
+  );
+  const fireBbox = useMemo(
+    () => bboxFromPoints(fireHotspots.map((h) => ({ lat: h.lat, lon: h.lon })), 0.06),
+    [fireHotspots],
+  );
   return (
     <section
       className="sentry-map-stage relative h-full min-h-0 overflow-hidden bg-[#060609]"
@@ -717,6 +740,9 @@ function MapPanel({
               distanceKm: s.distanceKm ?? 5 + idx * 1.5,
               etaMinutes: s.etaMinutes,
             }))}
+            hotspots={fireHotspots}
+            bbox={fireBbox ?? undefined}
+            tourMode={fireHotspots.length > 1}
           />
         )
       ) : hazard === "earthquake" ? (
