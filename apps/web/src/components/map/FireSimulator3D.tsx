@@ -26,7 +26,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Text, Billboard, Stars } from "@react-three/drei";
+import { Text, Billboard } from "@react-three/drei";
 import * as THREE from "three";
 
 import {
@@ -35,6 +35,15 @@ import {
   type ProjectedHotspot,
 } from "@/lib/firms/project";
 import type { FirmsBbox } from "@/lib/firms/client";
+import {
+  AppleMapsCamera,
+  AppleMapsCameraControls,
+  AppleMapsCameraProvider,
+} from "@/components/map/AppleMapsCamera";
+import { AtmosphericLayer } from "@/components/map/AtmosphericLayer";
+import { UnitModel } from "@/components/map/units/UnitModel";
+import { UnitRouteLine } from "@/components/map/UnitRouteLine";
+import { UnitRouteBadge, type UnitStatus } from "@/components/map/UnitRouteBadge";
 
 interface ResourceMarker {
   id: string;
@@ -661,9 +670,14 @@ function DispatchedUnit({ res }: { res: ResourceMarker }) {
   const groupRef = useRef<THREE.Group>(null!);
   const tStart = useRef<number | null>(null);
   const beeped = useRef(false);
+  const lastProgressUpdate = useRef(0);
+  const [progress, setProgress] = useState(0);
   const isAerial = res.kind === "helicopter" || res.kind === "fixed-wing";
 
-  const { curve, basePos } = useMemo(() => {
+  const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls);
+
+  const { curve, basePos, startPos, endPos, sceneDuration } = useMemo(() => {
     const angleRad = (res.bearingDeg * Math.PI) / 180;
     const distUnits = Math.min(18, (res.distanceKm * 1000) / 125);
     const bx = Math.sin(angleRad) * distUnits;
@@ -675,18 +689,49 @@ function DispatchedUnit({ res }: { res: ResourceMarker }) {
     return {
       curve: new THREE.CatmullRomCurve3([start, mid, end], false, "catmullrom", 0.5),
       basePos: new THREE.Vector3(bx, 0, bz),
+      startPos: start,
+      endPos: end,
+      sceneDuration: Math.max(4, res.etaMinutes / 4),
     };
-  }, [res.bearingDeg, res.distanceKm, isAerial]);
+  }, [res.bearingDeg, res.distanceKm, isAerial, res.etaMinutes]);
 
   useFrame(({ clock }) => {
     if (!groupRef.current) return;
     if (tStart.current === null) tStart.current = clock.getElapsedTime();
-    const sceneDuration = Math.max(4, res.etaMinutes / 4);
     const elapsed = clock.getElapsedTime() - tStart.current;
     const t = Math.min(1, elapsed / sceneDuration);
     const tEased = 1 - Math.pow(1 - t, 2.5);
     const pos = curve.getPointAt(tEased);
     groupRef.current.position.copy(pos);
+
+    // Heading: face along the curve tangent so the vehicle nose tracks travel.
+    const ahead = curve.getPointAt(Math.min(1, tEased + 0.005));
+    const dir = ahead.clone().sub(pos);
+    if (dir.lengthSq() > 1e-6) {
+      groupRef.current.rotation.y = Math.atan2(dir.x, dir.z);
+    }
+
+    // Apple-Maps-style LOD: keep the unit visible at regional/overview zooms.
+    const target =
+      controls && "target" in controls && (controls as { target?: THREE.Vector3 }).target
+        ? (controls as { target: THREE.Vector3 }).target
+        : new THREE.Vector3(0, 0, 0);
+    const cdx = camera.position.x - target.x;
+    const cdy = camera.position.y - target.y;
+    const cdz = camera.position.z - target.z;
+    const camDist = Math.sqrt(cdx * cdx + cdy * cdy + cdz * cdz);
+    const refDist = 30;
+    const scaleMul = camDist <= refDist ? 1 : Math.min(4, camDist / refDist);
+    groupRef.current.scale.setScalar(scaleMul);
+
+    // Throttle React state updates to ~4 Hz to keep the route line + ETA fresh
+    // without thrashing reconciliation every frame.
+    const now = clock.getElapsedTime();
+    if (now - lastProgressUpdate.current > 0.25) {
+      setProgress(t);
+      lastProgressUpdate.current = now;
+    }
+
     if (!beeped.current && t >= 0.95) {
       beeped.current = true;
       const freq = isAerial ? 1100 : res.kind === "dozer" ? 540 : 760;
@@ -707,79 +752,40 @@ function DispatchedUnit({ res }: { res: ResourceMarker }) {
 
   const baseLabel = res.baseName ?? (isAerial ? `${res.kind.toUpperCase()} BASE` : "STATION");
   const unitLabel = res.name ?? `${res.kind.toUpperCase()}`;
+  const etaSeconds = Math.max(0, sceneDuration * (1 - progress));
+  const status: UnitStatus = progress >= 0.99 ? "ON_SCENE" : "ENROUTE";
+  const unitVisualScale = isAerial ? 0.55 : 0.45;
 
   return (
     <>
       <StationBase position={basePos} name={baseLabel} color={color} isAerial={isAerial} />
+      <UnitRouteLine
+        start={startPos}
+        end={endPos}
+        color={color}
+        isAerial={isAerial}
+        progress={progress}
+      />
       <group ref={groupRef}>
-        <mesh>
-          <sphereGeometry args={[isAerial ? 0.18 : 0.12, 12, 12]} />
-          <meshBasicMaterial color={color} toneMapped={false} />
-        </mesh>
+        <UnitModel kind={res.kind} color={color} scale={unitVisualScale} />
         <pointLight color={color} intensity={1.2} distance={2.4} decay={2} />
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06, 0]}>
-          <ringGeometry args={[0, 0.22, 16]} />
-          <meshBasicMaterial color={color} transparent opacity={0.35} />
-        </mesh>
-        <Billboard position={[0, 0.5, 0]} follow>
-          <Text
-            fontSize={0.22}
-            color="#ffffff"
-            anchorX="center"
-            anchorY="middle"
-            outlineWidth={0.02}
-            outlineColor="#000000"
-            material-toneMapped={false}
-          >
-            {`${unitLabel} · ETA ${res.etaMinutes}m`}
-          </Text>
-        </Billboard>
+        <UnitRouteBadge
+          position={[0, isAerial ? 1.2 : 1.6, 0]}
+          kind={res.kind}
+          name={unitLabel}
+          etaSeconds={etaSeconds}
+          status={status}
+          color={color}
+        />
       </group>
     </>
   );
 }
 
-// ─────────────── Cinematic camera intro ───────────────
-
-function CinematicIntro({
-  durationSec = 2.5,
-  startPos = new THREE.Vector3(28, 22, 28),
-  endPos = new THREE.Vector3(12, 8, 14),
-  enabled = true,
-}: {
-  durationSec?: number;
-  startPos?: THREE.Vector3;
-  endPos?: THREE.Vector3;
-  enabled?: boolean;
-}) {
-  const { camera } = useThree();
-  const t0 = useRef<number | null>(null);
-  const done = useRef(false);
-
-  useEffect(() => {
-    if (!enabled) return;
-    camera.position.copy(startPos);
-    camera.lookAt(0, 0, 0);
-  }, [camera, startPos, enabled]);
-
-  useFrame(({ clock }) => {
-    if (!enabled || done.current) return;
-    if (t0.current === null) t0.current = clock.getElapsedTime();
-    const elapsed = clock.getElapsedTime() - t0.current;
-    const t = Math.min(1, elapsed / durationSec);
-    const eased = 1 - Math.pow(1 - t, 3);
-    camera.position.lerpVectors(startPos, endPos, eased);
-    camera.lookAt(0, 0, 0);
-    if (t >= 1) done.current = true;
-  });
-
-  return null;
-}
-
 // ─────────────── Camera tour controller ───────────────
 //
 // While `tourMode` is true, the camera eases between hotspots — 4 seconds
-// per stop with a cubic ease-out (same easing pattern as CinematicIntro).
+// per stop with a cubic ease-out.
 
 function CameraTour({
   hotspots,
@@ -975,81 +981,75 @@ export function FireSimulator3D({
   }, []);
 
   return (
-    <div className="relative h-full w-full bg-black">
-      <Canvas
-        camera={{ position: [28, 22, 28], fov: 45, near: 0.1, far: 200 }}
-        dpr={[1, 1.5]}
-        gl={{ antialias: true, alpha: false }}
-      >
-        <color attach="background" args={["#000000"]} />
-        <ambientLight intensity={0.32} />
-        <directionalLight position={[8, 10, 5]} intensity={0.6} />
-        {smokeSources.map((s) => (
-          <pointLight
-            key={`pl_${s.key}`}
-            position={[s.x, 0.6, s.z]}
-            color={new THREE.Color(riskColor[0], riskColor[1], riskColor[2])}
-            intensity={smokeSources.length > 1 ? 1.6 : 2.5}
-            distance={smokeSources.length > 1 ? 7 : 10}
+    <AppleMapsCameraProvider initialPreset="tactical" initialTarget={[0, 0, 0]}>
+      <div className="relative h-full w-full bg-[#0e1820]">
+        <Canvas
+          camera={{ position: [12, 8, 14], fov: 45, near: 0.1, far: 600 }}
+          dpr={[1, 1.5]}
+          gl={{ antialias: true, alpha: false }}
+          shadows
+        >
+          <AtmosphericLayer
+            sunPosition={[60, 90, 35]}
+            cloudDensity={0.55}
+            fogDensity={0.0006}
+            showAsh={projected.length > 0}
           />
-        ))}
-        <Stars radius={70} depth={50} count={1000} factor={1.6} fade speed={0.3} />
-
-        {/* Cinematic intro is suppressed while a tour is active so the tour
-            camera owns the view. */}
-        <CinematicIntro enabled={!tourActive} />
-        <CameraTour hotspots={projected} active={tourActive} index={tourIndex} />
-
-        <Terrain fireGridRef={fireGridRef} windDirDeg={windDirDeg} windSpeedMs={windSpeedMs} />
-        <SpreadRings
-          predicted1hAcres={predicted1hAcres}
-          predicted6hAcres={predicted6hAcres}
-          predicted24hAcres={predicted24hAcres}
-        />
-        {emberClusters.map((c) => (
-          <group key={`embers_${c.key}`} position={[c.x, 0, c.z]}>
-            <Embers
-              windDirDeg={windDirDeg}
-              windSpeedMs={windSpeedMs}
-              riskColor={riskColor}
-              count={c.count}
+          {smokeSources.map((s) => (
+            <pointLight
+              key={`pl_${s.key}`}
+              position={[s.x, 0.6, s.z]}
+              color={new THREE.Color(riskColor[0], riskColor[1], riskColor[2])}
+              intensity={smokeSources.length > 1 ? 1.6 : 2.5}
+              distance={smokeSources.length > 1 ? 7 : 10}
             />
-          </group>
-        ))}
-        {smokeSources.map((s) => (
-          <group
-            key={`smoke_${s.key}`}
-            position={[s.x, 0, s.z]}
-            scale={0.6 + Math.min(1.2, Math.sqrt(s.frp || 1) / 22)}
-          >
-            <SmokeColumn windDirDeg={windDirDeg} windSpeedMs={windSpeedMs} />
-          </group>
-        ))}
-        <Landmarks landmarks={landmarks} showIncident={projected.length === 0} />
-        {projected.length > 0 && <HotspotLabels hotspots={projected} />}
-        {resources.map((r) => (
-          <DispatchedUnit key={r.id} res={r} />
-        ))}
+          ))}
 
-        <OrbitControls
-          enablePan
-          enableZoom
-          enableRotate
-          minDistance={5}
-          maxDistance={45}
-          maxPolarAngle={Math.PI / 2.05}
-          enabled={!tourActive}
-        />
-      </Canvas>
-      {tourActive && (
-        <TourControls
-          hotspots={projected}
-          index={tourIndex}
-          setIndex={handleSetIndex}
-          paused={tourPaused}
-          setPaused={setTourPaused}
-        />
-      )}
-    </div>
+          <AppleMapsCamera enabled={!tourActive} />
+          <CameraTour hotspots={projected} active={tourActive} index={tourIndex} />
+
+          <Terrain fireGridRef={fireGridRef} windDirDeg={windDirDeg} windSpeedMs={windSpeedMs} />
+          <SpreadRings
+            predicted1hAcres={predicted1hAcres}
+            predicted6hAcres={predicted6hAcres}
+            predicted24hAcres={predicted24hAcres}
+          />
+          {emberClusters.map((c) => (
+            <group key={`embers_${c.key}`} position={[c.x, 0, c.z]}>
+              <Embers
+                windDirDeg={windDirDeg}
+                windSpeedMs={windSpeedMs}
+                riskColor={riskColor}
+                count={c.count}
+              />
+            </group>
+          ))}
+          {smokeSources.map((s) => (
+            <group
+              key={`smoke_${s.key}`}
+              position={[s.x, 0, s.z]}
+              scale={0.6 + Math.min(1.2, Math.sqrt(s.frp || 1) / 22)}
+            >
+              <SmokeColumn windDirDeg={windDirDeg} windSpeedMs={windSpeedMs} />
+            </group>
+          ))}
+          <Landmarks landmarks={landmarks} showIncident={projected.length === 0} />
+          {projected.length > 0 && <HotspotLabels hotspots={projected} />}
+          {resources.map((r) => (
+            <DispatchedUnit key={r.id} res={r} />
+          ))}
+        </Canvas>
+        <AppleMapsCameraControls className="absolute right-4 top-4 z-[405]" />
+        {tourActive && (
+          <TourControls
+            hotspots={projected}
+            index={tourIndex}
+            setIndex={handleSetIndex}
+            paused={tourPaused}
+            setPaused={setTourPaused}
+          />
+        )}
+      </div>
+    </AppleMapsCameraProvider>
   );
 }
