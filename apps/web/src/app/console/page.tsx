@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 import { LeafletMap } from "@/components/map/MapContainer";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import dynamic from "next/dynamic";
+import { computeBbox } from "@/lib/geo/bbox";
 
 // EarthquakeMap + FloodMap import leaflet at module top-level — leaflet
 // touches `window` so they must be SSR-disabled like FireSimulator3D.
@@ -68,8 +69,13 @@ const FloodMap = dynamic(
 );
 
 // 3D fire visualizer is browser-only (three.js); load it client-side.
-const FireSimulator3D = dynamic(
-  () => import("@/components/map/FireSimulator3D").then((m) => m.FireSimulator3D),
+// We use the *Live* wrapper which fetches real DEM (AWS Terrain Tiles) +
+// a 5x5 Open-Meteo spatial wind grid via TanStack Query and forwards the
+// rest of the props to FireSimulator3D unchanged. Any fetch failure
+// degrades gracefully back to the procedural terrain + uniform wind.
+const FireSimulator3DLive = dynamic(
+  () =>
+    import("@/components/map/FireSimulator3DLive").then((m) => m.FireSimulator3DLive),
   {
     ssr: false,
     loading: () => (
@@ -647,6 +653,14 @@ function MapPanel({
     [incidents],
   );
   const sceneIncident = selected ?? fallback;
+  // Compute a bbox centered on the scene incident (with a small pad)
+  // so we can fetch a real-world DEM tile + a 5x5 wind grid for it.
+  // When Agent A's computeBbox(incidents) lands, swap this for the
+  // visible-incidents version; the prop interface is identical.
+  const sceneBbox = useMemo(
+    () => (sceneIncident ? computeBbox([{ lat: sceneIncident.lat, lon: sceneIncident.lon }]) : null),
+    [sceneIncident],
+  );
   const showing3d = view === "3d" && hazard === "fire" && sceneIncident !== null;
   return (
     <section
@@ -654,7 +668,8 @@ function MapPanel({
       aria-label="Live wildfire map"
     >
       {showing3d && sceneIncident ? (
-        <FireSimulator3D
+        <FireSimulator3DLive
+          bbox={sceneBbox}
           windDirDeg={sceneIncident.windDirDeg}
           windSpeedMs={sceneIncident.windSpeedMs}
           predicted1hAcres={sceneIncident.predictedSpread.find((p) => p.horizonMin === 60)?.areaAcres}

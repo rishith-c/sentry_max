@@ -21,8 +21,10 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Text, Billboard, Stars } from "@react-three/drei";
+import { OrbitControls, Text, Billboard, Stars, Line } from "@react-three/drei";
 import * as THREE from "three";
+
+import type { WindGrid } from "@/lib/wind/grid";
 
 interface ResourceMarker {
   id: string;
@@ -53,6 +55,26 @@ interface FireSimulator3DProps {
   resources?: ResourceMarker[];
   landmarks?: Landmark[];
   lowDetail?: boolean;
+  /**
+   * Optional real DEM heightmap (TERRAIN_RES x TERRAIN_RES Float32Array
+   * normalised to scene units, length 96^2 = 9216). When present, this
+   * replaces the procedural sine-noise terrain. Use the
+   * `useDemHeightmap()` hook to fetch real elevation from AWS Terrain
+   * Tiles. Falls back gracefully to procedural when null/undefined.
+   */
+  demHeightmap?: Float32Array | null;
+  /**
+   * Optional spatial wind grid (typically 5x5) sampled from Open-Meteo.
+   * When present, the embers + ground CA sample the grid via bilinear
+   * interpolation (each cell gets its own wind vector). When absent the
+   * existing single-vector wind logic is used.
+   */
+  windGrid?: WindGrid | null;
+  /**
+   * Whether to render the wind-streamline overlay. Defaults to true when
+   * `windGrid` is supplied so the dispatcher sees the field structure.
+   */
+  showWindStreamlines?: boolean;
 }
 
 const TERRAIN_SIZE = 40;
@@ -120,8 +142,18 @@ function buildFireGrid(): Float32Array {
   return g;
 }
 
-function stepFire(grid: Float32Array, windX: number, windZ: number, rng: () => number): void {
+/** Optional per-cell wind sampler (in scene units - windX east, windZ south). */
+type WindCellSampler = (i: number, j: number) => { windX: number; windZ: number };
+
+function stepFire(
+  grid: Float32Array,
+  windX: number,
+  windZ: number,
+  rng: () => number,
+  sampleCellWind?: WindCellSampler,
+): void {
   const next = new Float32Array(grid.length);
+  // Uniform-fallback magnitudes used when no per-cell sampler is supplied.
   const wMag = Math.min(0.55, Math.hypot(windX, windZ) * 0.04);
   const wxNorm = wMag === 0 ? 0 : (windX / Math.hypot(windX, windZ)) || 0;
   const wzNorm = wMag === 0 ? 0 : (windZ / Math.hypot(windX, windZ)) || 0;
@@ -133,6 +165,20 @@ function stepFire(grid: Float32Array, windX: number, windZ: number, rng: () => n
         next[idx] = 1.0;
         continue;
       }
+      // When a spatial wind grid is supplied, each cell pulls its OWN
+      // (windX, windZ) - that's what gives the ground fire a
+      // spatially-varying spread direction and recovers the field
+      // structure the dispatcher needs to plan against.
+      let cwxNorm = wxNorm;
+      let cwzNorm = wzNorm;
+      let cwMag = wMag;
+      if (sampleCellWind) {
+        const cw = sampleCellWind(i, j);
+        const mag = Math.hypot(cw.windX, cw.windZ);
+        cwMag = Math.min(0.55, mag * 0.04);
+        cwxNorm = mag === 0 ? 0 : cw.windX / mag;
+        cwzNorm = mag === 0 ? 0 : cw.windZ / mag;
+      }
       let influence = 0;
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
@@ -140,9 +186,9 @@ function stepFire(grid: Float32Array, windX: number, windZ: number, rng: () => n
           const n = grid[(j + dy) * TERRAIN_RES + (i + dx)]!;
           if (n <= 0 || n >= 1) continue;
           const len = Math.hypot(dx, dy);
-          const align = -((dx / len) * wxNorm + (dy / len) * wzNorm);
+          const align = -((dx / len) * cwxNorm + (dy / len) * cwzNorm);
           const weight = 0.55 + 0.45 * Math.max(-0.4, align);
-          influence += n * weight * (0.5 + wMag);
+          influence += n * weight * (0.5 + cwMag);
         }
       }
       const ignitePressure = influence / 8;
@@ -191,10 +237,14 @@ function Terrain({
   fireGridRef,
   windDirDeg,
   windSpeedMs,
+  demHeightmap,
+  cellWindSampler,
 }: {
   fireGridRef: React.MutableRefObject<Float32Array>;
   windDirDeg: number;
   windSpeedMs: number;
+  demHeightmap?: Float32Array | null;
+  cellWindSampler?: WindCellSampler;
 }) {
   const fireMatRef = useRef<THREE.MeshBasicMaterial>(null!);
   const stepCounter = useRef(0);
@@ -209,7 +259,17 @@ function Terrain({
     [],
   );
 
-  const heightmap = useMemo(buildHeightmap, []);
+  // Prefer the supplied real-world DEM (AWS Terrain Tiles) when its
+  // resolution matches the scene mesh. Fall back to the procedural
+  // sine-noise heightmap when no DEM is provided or it has the wrong
+  // length - the scene must always render even if the live fetch fails.
+  const heightmap = useMemo<Float32Array>(() => {
+    const expected = TERRAIN_RES * TERRAIN_RES;
+    if (demHeightmap && demHeightmap.length === expected) {
+      return demHeightmap;
+    }
+    return buildHeightmap();
+  }, [demHeightmap]);
   const terrainGeo = useMemo(() => {
     const geo = new THREE.PlaneGeometry(
       TERRAIN_SIZE,
@@ -243,7 +303,7 @@ function Terrain({
       const windRad = (windDirDeg * Math.PI) / 180;
       const windX = Math.sin(windRad) * windSpeedMs;
       const windZ = -Math.cos(windRad) * windSpeedMs;
-      stepFire(fireGridRef.current, windX, windZ, rng);
+      stepFire(fireGridRef.current, windX, windZ, rng, cellWindSampler);
       const tex = fireGridToTexture(fireGridRef.current);
       if (fireMatRef.current) {
         fireMatRef.current.map?.dispose();
@@ -279,11 +339,13 @@ function Embers({
   windSpeedMs,
   riskColor,
   count,
+  cellWindSampler,
 }: {
   windDirDeg: number;
   windSpeedMs: number;
   riskColor: [number, number, number];
   count: number;
+  cellWindSampler?: WindCellSampler;
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -317,8 +379,26 @@ function Embers({
         p.life = 0;
         p.ttl = 1.4 + Math.random() * 2.2;
       }
-      p.x += windX * dt;
-      p.z += windZ * dt;
+      // When a spatial wind grid is supplied, each ember pulls the wind
+      // vector at its OWN scene-space (x,z) so embers near the eastern
+      // ridge drift differently than ones above the valley.
+      let pWindX = windX;
+      let pWindZ = windZ;
+      if (cellWindSampler) {
+        const ci = Math.max(
+          0,
+          Math.min(TERRAIN_RES - 1, Math.round(((p.x / TERRAIN_SIZE) + 0.5) * (TERRAIN_RES - 1))),
+        );
+        const cj = Math.max(
+          0,
+          Math.min(TERRAIN_RES - 1, Math.round(((p.z / TERRAIN_SIZE) + 0.5) * (TERRAIN_RES - 1))),
+        );
+        const cw = cellWindSampler(ci, cj);
+        pWindX = cw.windX * 0.06;
+        pWindZ = cw.windZ * 0.06;
+      }
+      p.x += pWindX * dt;
+      p.z += pWindZ * dt;
       p.y += p.vy * dt;
       p.vy *= 1 - dt * 0.4;
       const t = p.life / p.ttl;
@@ -681,6 +761,92 @@ function CinematicIntro({
   return null;
 }
 
+// ─────────────── Wind grid -> scene-space sampler ───────────────
+//
+// The CA + embers want a `(i, j) -> (windX, windZ)` callback in scene
+// units, but the WindGrid is indexed by lat/lon. We project the grid's
+// bbox onto the scene's [-TERRAIN_SIZE/2, +TERRAIN_SIZE/2] square and
+// bilinear-interpolate. (i, j) here are the CA cell indices in
+// [0, TERRAIN_RES). The y-axis flip matches the existing convention
+// where windZ < 0 means "blowing north" (toward -Z).
+
+function makeCellSamplerFromWindGrid(grid: WindGrid): WindCellSampler {
+  const [rows, cols] = grid.gridDims;
+  const u = grid.uMs;
+  const v = grid.vMs;
+  return (i: number, j: number) => {
+    // Map CA cell (i, j) in [0, TERRAIN_RES) to grid index space.
+    const fx = i / (TERRAIN_RES - 1);
+    const fy = j / (TERRAIN_RES - 1);
+    const gx = Math.max(0, Math.min(cols - 1, fx * (cols - 1)));
+    const gy = Math.max(0, Math.min(rows - 1, fy * (rows - 1)));
+    const x0 = Math.floor(gx);
+    const x1 = Math.min(cols - 1, x0 + 1);
+    const y0 = Math.floor(gy);
+    const y1 = Math.min(rows - 1, y0 + 1);
+    const dx = gx - x0;
+    const dy = gy - y0;
+    const idx = (jj: number, ii: number): number => jj * cols + ii;
+    const lerp = (a00: number, a10: number, a01: number, a11: number): number =>
+      a00 * (1 - dx) * (1 - dy) +
+      a10 * dx * (1 - dy) +
+      a01 * (1 - dx) * dy +
+      a11 * dx * dy;
+    const uVal = lerp(u[idx(y0, x0)]!, u[idx(y0, x1)]!, u[idx(y1, x0)]!, u[idx(y1, x1)]!);
+    const vVal = lerp(v[idx(y0, x0)]!, v[idx(y0, x1)]!, v[idx(y1, x0)]!, v[idx(y1, x1)]!);
+    // Convention: windX east-positive, windZ south-positive -> north is -Z.
+    // u is east-positive (matches), v is north-positive -> flip sign for Z.
+    return { windX: uVal, windZ: -vVal };
+  };
+}
+
+// ─────────────── Wind streamlines overlay ───────────────
+//
+// Subtle <Line> segments along each wind-grid cell's local vector so the
+// dispatcher can read the field structure at a glance. Opacity 0.25 keeps
+// it under the fire visuals.
+
+function WindStreamlines({ windGrid }: { windGrid: WindGrid }) {
+  const segments = useMemo(() => {
+    const [rows, cols] = windGrid.gridDims;
+    const out: { from: [number, number, number]; to: [number, number, number] }[] = [];
+    const half = TERRAIN_SIZE / 2;
+    const yPlane = 0.06;
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        const fx = cols === 1 ? 0.5 : i / (cols - 1);
+        const fy = rows === 1 ? 0.5 : j / (rows - 1);
+        const x = -half + fx * TERRAIN_SIZE;
+        const z = -half + fy * TERRAIN_SIZE;
+        const u = windGrid.uMs[j * cols + i] ?? 0;
+        const v = windGrid.vMs[j * cols + i] ?? 0;
+        const mag = Math.hypot(u, v);
+        if (mag < 0.05) continue;
+        const len = Math.min(1.6, 0.4 + mag * 0.18);
+        const dx = (u / mag) * len;
+        const dz = (-v / mag) * len; // flip for scene Z convention
+        out.push({ from: [x, yPlane, z], to: [x + dx, yPlane, z + dz] });
+      }
+    }
+    return out;
+  }, [windGrid]);
+
+  return (
+    <group>
+      {segments.map((s, i) => (
+        <Line
+          key={i}
+          points={[s.from, s.to]}
+          color="#7dd3fc"
+          lineWidth={1.4}
+          transparent
+          opacity={0.25}
+        />
+      ))}
+    </group>
+  );
+}
+
 // ─────────────── Main scene ───────────────
 
 export function FireSimulator3D({
@@ -693,10 +859,18 @@ export function FireSimulator3D({
   resources = [],
   landmarks = DEFAULT_LANDMARKS,
   lowDetail = false,
+  demHeightmap = null,
+  windGrid = null,
+  showWindStreamlines,
 }: FireSimulator3DProps) {
   const fireGridRef = useRef<Float32Array>(buildFireGrid());
   const riskColor = RISK_COLORS[risk];
   const emberCount = lowDetail ? 1500 : 3500;
+  const cellSampler = useMemo(
+    () => (windGrid ? makeCellSamplerFromWindGrid(windGrid) : undefined),
+    [windGrid],
+  );
+  const renderStreamlines = showWindStreamlines ?? Boolean(windGrid);
 
   return (
     <div className="relative h-full w-full bg-black">
@@ -721,17 +895,25 @@ export function FireSimulator3D({
             completes, OrbitControls take full ownership. */}
         <CinematicIntro />
 
-        <Terrain fireGridRef={fireGridRef} windDirDeg={windDirDeg} windSpeedMs={windSpeedMs} />
+        <Terrain
+          fireGridRef={fireGridRef}
+          windDirDeg={windDirDeg}
+          windSpeedMs={windSpeedMs}
+          demHeightmap={demHeightmap}
+          cellWindSampler={cellSampler}
+        />
         <SpreadRings
           predicted1hAcres={predicted1hAcres}
           predicted6hAcres={predicted6hAcres}
           predicted24hAcres={predicted24hAcres}
         />
+        {windGrid && renderStreamlines ? <WindStreamlines windGrid={windGrid} /> : null}
         <Embers
           windDirDeg={windDirDeg}
           windSpeedMs={windSpeedMs}
           riskColor={riskColor}
           count={emberCount}
+          cellWindSampler={cellSampler}
         />
         <SmokeColumn windDirDeg={windDirDeg} windSpeedMs={windSpeedMs} />
         <Landmarks landmarks={landmarks} />
