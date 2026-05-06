@@ -2,8 +2,8 @@ from typing import Awaitable, cast
 
 from redis.asyncio import Redis
 
-from ignislink_api.db import DependencyCheck, CheckStatus
-from ignislink_api.settings import Settings
+from sentry_max_api.db import DependencyCheck, CheckStatus
+from sentry_max_api.settings import Settings
 
 
 async def check_redis(settings: Settings) -> DependencyCheck:

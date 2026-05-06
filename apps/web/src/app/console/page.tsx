@@ -261,7 +261,7 @@ export default function ConsolePage() {
     : "fixture fallback";
 
   return (
-    <main className="sentry-forge-bg text-foreground h-screen overflow-hidden p-0">
+    <main className="sentry-bg text-foreground h-screen overflow-hidden p-0">
       <motion.div
         initial={{ opacity: 0, y: 12, scale: 0.985 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -375,7 +375,7 @@ function AppChrome({
             </Badge>
           </div>
           <div className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-400">
-            <span className="sentry-live-dot h-1.5 w-1.5 rounded-full bg-[var(--forge-orange)]" />
+            <span className="sentry-live-dot h-1.5 w-1.5 rounded-full bg-[var(--sentry-orange)]" />
             <span>satellite detections · {windSource} · routing and dispatch queue</span>
           </div>
         </div>
@@ -406,7 +406,7 @@ function Stat({
     tone === "emerald"
       ? "text-emerald-300"
       : tone === "orange"
-        ? "text-[var(--forge-orange-light)]"
+        ? "text-[var(--sentry-orange-light)]"
         : "text-zinc-300";
   return (
     <div className="sentry-glass flex items-center gap-2 rounded-[10px] px-2.5 py-1.5 text-xs">
@@ -435,7 +435,7 @@ function QueueHeader({
       <div className="flex items-center justify-between gap-3">
         <div>
           <Badge className="mb-2 gap-1.5 border-white/10 bg-white/[0.08] px-2 py-1 text-[11px] font-medium text-zinc-300 shadow-none">
-            <Layers3 className="h-3.5 w-3.5 text-[var(--forge-orange-light)]" />
+            <Layers3 className="h-3.5 w-3.5 text-[var(--sentry-orange-light)]" />
             spread model inputs
           </Badge>
           <h2 className="text-xl font-semibold leading-tight">Incident queue</h2>
@@ -444,7 +444,7 @@ function QueueHeader({
           </p>
         </div>
         <Badge className="gap-1.5 border-orange-300/20 bg-orange-500/[0.12] text-xs font-medium text-orange-100 shadow-none">
-          <span className="sentry-live-dot h-1.5 w-1.5 rounded-full bg-[var(--forge-orange)]" />
+          <span className="sentry-live-dot h-1.5 w-1.5 rounded-full bg-[var(--sentry-orange)]" />
           Live
         </Badge>
       </div>
@@ -455,7 +455,7 @@ function QueueHeader({
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search ID, county, neighborhood..."
-          className="h-10 rounded-[12px] border-white/10 bg-white/[0.07] pl-9 text-sm text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-[var(--forge-orange)]"
+          className="h-10 rounded-[12px] border-white/10 bg-white/[0.07] pl-9 text-sm text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-[var(--sentry-orange)]"
           aria-label="Search incidents"
         />
       </div>
@@ -768,7 +768,7 @@ function HazardComingSoon({
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-[#060609] p-6">
       <div className="sentry-glass-strong max-w-md rounded-[16px] p-6 text-center">
-        <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--forge-orange-light)]">
+        <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--sentry-orange-light)]">
           model architecture ready · ingestion pending
         </div>
         <h2 className="mb-1 text-lg font-semibold text-zinc-100">{title}</h2>
@@ -785,7 +785,7 @@ function HazardComingSoon({
             className="block rounded-[10px] border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.06]"
           >
             <span className="text-zinc-500">Reference · </span>
-            <span className="text-[var(--forge-orange-light)] underline-offset-2 hover:underline">
+            <span className="text-[var(--sentry-orange-light)] underline-offset-2 hover:underline">
               {paperUrl}
             </span>
           </a>
@@ -810,7 +810,7 @@ function GlassPill({
 }) {
   return (
     <div className="sentry-glass flex items-center gap-2 rounded-[999px] px-3 py-2 text-xs">
-      <span className="text-[var(--forge-orange-light)] [&_svg]:h-3.5 [&_svg]:w-3.5">{icon}</span>
+      <span className="text-[var(--sentry-orange-light)] [&_svg]:h-3.5 [&_svg]:w-3.5">{icon}</span>
       <span className="text-zinc-300">{label}</span>
       <span className="text-zinc-500">{value}</span>
     </div>
@@ -1177,7 +1177,7 @@ function Section({
   return (
     <section className="sentry-glass rounded-[14px] p-3.5">
       <div className="mb-3 flex items-center gap-2 text-xs">
-        <span className="flex h-7 w-7 items-center justify-center rounded-[9px] bg-orange-500/[0.12] text-[var(--forge-orange-light)]">
+        <span className="flex h-7 w-7 items-center justify-center rounded-[9px] bg-orange-500/[0.12] text-[var(--sentry-orange-light)]">
           {icon}
         </span>
         <div>
@@ -1250,7 +1250,7 @@ function WindRose({ dirDeg, speedMs }: { dirDeg: number; speedMs: number }) {
         y1={36}
         x2={x}
         y2={y}
-        stroke="var(--forge-orange-light)"
+        stroke="var(--sentry-orange-light)"
         strokeWidth="2.4"
         strokeLinecap="round"
       />
@@ -1263,7 +1263,7 @@ function WindRose({ dirDeg, speedMs }: { dirDeg: number; speedMs: number }) {
         strokeWidth="1.5"
         strokeLinecap="round"
       />
-      <circle cx={36} cy={36} r="2.7" fill="var(--forge-orange-light)" />
+      <circle cx={36} cy={36} r="2.7" fill="var(--sentry-orange-light)" />
       <text x={36} y={68} fontSize="7" textAnchor="middle" fill="rgb(161 161 170)">
         {speedMs.toFixed(1)} m/s
       </text>

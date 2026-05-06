@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from ignislink_api.hazard_math import aftershock_probability
+from sentry_max_api.hazard_math import aftershock_probability
 
 
 router = APIRouter()

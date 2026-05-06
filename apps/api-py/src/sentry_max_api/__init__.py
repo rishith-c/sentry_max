@@ -1,4 +1,4 @@
-"""IgnisLink FastAPI service."""
+"""SentryMax FastAPI service."""
 
 __all__ = ["__version__"]
 

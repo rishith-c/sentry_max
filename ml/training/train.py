@@ -284,7 +284,7 @@ def _parse_yaml_config(path: str) -> dict[str, Any]:
 
 
 def parse_args(argv: list[str] | None = None) -> TrainConfig:
-    p = argparse.ArgumentParser(description="Train the IgnisLink fire-spread model.")
+    p = argparse.ArgumentParser(description="Train the SentryMax fire-spread model.")
     p.add_argument("--config", type=str, default=None, help="Optional YAML config file.")
     p.add_argument("--max-epochs", type=int, default=2)
     p.add_argument("--batch-size", type=int, default=2)

@@ -29,7 +29,7 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.14(hono@4.12.16)
-      '@ignislink/contracts':
+      '@sentry-max/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       hono:
@@ -63,15 +63,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@ignislink/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@ignislink/geospatial':
-        specifier: workspace:*
-        version: link:../../packages/geospatial
-      '@ignislink/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
@@ -105,6 +96,15 @@ importers:
       '@react-three/fiber':
         specifier: ^9.6.1
         version: 9.6.1(@types/react@19.2.14)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)(three@0.184.0)
+      '@sentry-max/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@sentry-max/geospatial':
+        specifier: workspace:*
+        version: link:../../packages/geospatial
+      '@sentry-max/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@tanstack/react-query':
         specifier: ^5.59.16
         version: 5.100.8(react@19.0.0)

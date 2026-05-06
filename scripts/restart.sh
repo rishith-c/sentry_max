@@ -3,13 +3,13 @@
 #
 # What it stops:
 #   * any `next dev` (frontend on :3000)
-#   * any `uvicorn` running ignislink_api (backend on :8000)
+#   * any `uvicorn` running sentry_max_api (backend on :8000)
 #   * any `python -m apps.worker` poller
 #   * any `pnpm install / pnpm dlx shadcn` lockholder still around
 #
 # What it starts:
-#   * frontend  : pnpm --filter @ignislink/web dev               → http://localhost:3000
-#   * backend   : uvicorn ignislink_api.main:app --reload --port 8000
+#   * frontend  : pnpm --filter @sentry-max/web dev               → http://localhost:3000
+#   * backend   : uvicorn sentry_max_api.main:app --reload --port 8000
 #                 (only if apps/api-py deps are installed; skipped with a
 #                 friendly note otherwise)
 #
@@ -65,7 +65,7 @@ stop_pattern() {
 stop_all() {
   step "stopping running SENTRY processes"
   stop_pattern "frontend (next dev)"   "next dev"
-  stop_pattern "backend (uvicorn)"     "uvicorn .*ignislink_api"
+  stop_pattern "backend (uvicorn)"     "uvicorn .*sentry_max_api"
   stop_pattern "worker (apps.worker)"  "python.* -m apps.worker"
   stop_pattern "shadcn dlx"            "pnpm dlx shadcn"
   # Free up port 3000 / 8000 if anything is still bound.
@@ -85,7 +85,7 @@ start_frontend() {
   step "starting frontend"
   cd "$REPO_ROOT" || exit 1
   : > "$WEB_LOG"
-  nohup pnpm --filter @ignislink/web dev > "$WEB_LOG" 2>&1 &
+  nohup pnpm --filter @sentry-max/web dev > "$WEB_LOG" 2>&1 &
   disown
   # Wait up to 30s for "Ready in".
   local i
@@ -111,18 +111,18 @@ start_backend() {
   fi
   # Check that uvicorn is importable. If it isn't, bail with a clear note —
   # the dispatcher console runs fine without it via the fixture-fallback path.
-  if ! python3 -c "import uvicorn, ignislink_api" 2>/dev/null; then
+  if ! python3 -c "import uvicorn, sentry_max_api" 2>/dev/null; then
     if ! python3 -c "import uvicorn" 2>/dev/null; then
       warn "uvicorn not installed in this Python env"
     else
-      warn "ignislink_api package not importable (run: cd apps/api-py && pip install -e . )"
+      warn "sentry_max_api package not importable (run: cd apps/api-py && pip install -e . )"
     fi
     note "frontend will use fixture / USGS-direct fallback paths instead"
     return
   fi
   : > "$API_LOG"
   cd "$api_dir" || return
-  nohup python3 -m uvicorn ignislink_api.main:app --reload --port 8000 > "$API_LOG" 2>&1 &
+  nohup python3 -m uvicorn sentry_max_api.main:app --reload --port 8000 > "$API_LOG" 2>&1 &
   disown
   cd "$REPO_ROOT" || true
   # Wait up to 20s for /health.
@@ -141,7 +141,7 @@ start_backend() {
 
 status() {
   step "process status"
-  for pat in "next dev" "uvicorn .*ignislink_api" "python.* -m apps.worker"; do
+  for pat in "next dev" "uvicorn .*sentry_max_api" "python.* -m apps.worker"; do
     local pids
     pids=$(pgrep -f "$pat" 2>/dev/null || true)
     if [[ -n "$pids" ]]; then
@@ -177,7 +177,7 @@ case "$cmd" in
     start_frontend
     ;;
   backend|be|api)
-    stop_pattern "backend (uvicorn)" "uvicorn .*ignislink_api"
+    stop_pattern "backend (uvicorn)" "uvicorn .*sentry_max_api"
     start_backend
     ;;
   restart|"")

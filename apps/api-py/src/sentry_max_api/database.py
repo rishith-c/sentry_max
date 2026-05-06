@@ -1,6 +1,6 @@
 """Async SQLAlchemy engine + session factory.
 
-Distinct from ``ignislink_api.db`` (which is the legacy
+Distinct from ``sentry_max_api.db`` (which is the legacy
 ``check_database`` helper used by the readiness probe). This module owns
 the live engine + sessionmaker that the route layer depends on.
 """
@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from ignislink_api.settings import Settings
+from sentry_max_api.settings import Settings
 
 
 def make_engine(settings: Settings) -> AsyncEngine:

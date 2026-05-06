@@ -22,12 +22,12 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from redis.asyncio import Redis
 
-from ignislink_api import __version__
-from ignislink_api.database import make_engine, make_session_factory
-from ignislink_api.kafka_io import KafkaPublisher
-from ignislink_api.observability import configure_observability
-from ignislink_api.onnx_loader import FireSpreadOnnx
-from ignislink_api.routes import (
+from sentry_max_api import __version__
+from sentry_max_api.database import make_engine, make_session_factory
+from sentry_max_api.kafka_io import KafkaPublisher
+from sentry_max_api.observability import configure_observability
+from sentry_max_api.onnx_loader import FireSpreadOnnx
+from sentry_max_api.routes import (
     detections,
     dispatch,
     earthquakes,
@@ -35,7 +35,7 @@ from ignislink_api.routes import (
     health,
     predict,
 )
-from ignislink_api.settings import Settings, get_settings
+from sentry_max_api.settings import Settings, get_settings
 
 
 log = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(
-        title="IgnisLink Internal API",
+        title="SentryMax Internal API",
         version=__version__,
         docs_url="/docs",
         redoc_url=None,

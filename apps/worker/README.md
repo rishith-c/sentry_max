@@ -32,7 +32,7 @@ apps/worker/
 └── tests/                      # pytest — dedup + parser coverage
 ```
 
-The legacy Stage-0 Celery surface lives under `src/ignislink_worker/` and is
+The legacy Stage-0 Celery surface lives under `src/sentry-max_worker/` and is
 preserved so PR #14's webhooks don't break.
 
 ## Quick start

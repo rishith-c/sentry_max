@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from ignislink_api.contracts import (
+from sentry_max_api.contracts import (
     Detection,
     DetectionLocality,
     DetectionProvenance,

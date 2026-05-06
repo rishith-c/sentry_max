@@ -19,7 +19,7 @@ _DEFAULT_ONNX_PATH = _REPO_ROOT / "ml" / "models" / "fire-spread-prod-candidate-
 
 
 class Settings(BaseSettings):
-    service_name: str = "ignislink-api-py"
+    service_name: str = "sentry-max-api-py"
 
     environment: str = Field(
         default="local",

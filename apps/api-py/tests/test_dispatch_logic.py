@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ignislink_api.contracts import Point
-from ignislink_api.dispatch_logic import rank_resources, staging_area
+from sentry_max_api.contracts import Point
+from sentry_max_api.dispatch_logic import rank_resources, staging_area
 
 
 def test_rank_resources_returns_top_n() -> None:

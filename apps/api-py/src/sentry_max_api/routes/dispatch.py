@@ -18,15 +18,15 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import text
 
-from ignislink_api.contracts import (
+from sentry_max_api.contracts import (
     DispatchPayload,
     DispatchRequest,
     MultiPolygon,
     Point,
     SuggestedSpreadHorizon,
 )
-from ignislink_api.dispatch_logic import rank_resources, staging_area
-from ignislink_api.spread_post import _circle_polygon
+from sentry_max_api.dispatch_logic import rank_resources, staging_area
+from sentry_max_api.spread_post import _circle_polygon
 
 
 router = APIRouter()

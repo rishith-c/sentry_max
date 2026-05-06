@@ -1,4 +1,4 @@
-# IgnisLink Agent Board
+# SentryMax Agent Board
 
 Last updated: 2026-05-04T23:16:24Z
 

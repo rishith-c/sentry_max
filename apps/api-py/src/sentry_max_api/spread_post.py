@@ -16,7 +16,7 @@ from typing import Iterable
 
 import numpy as np
 
-from ignislink_api.contracts import (
+from sentry_max_api.contracts import (
     HorizonContours,
     HorizonResult,
     MultiPolygon,

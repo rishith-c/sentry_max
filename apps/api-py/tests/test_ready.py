@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from ignislink_api.main import create_app
-from ignislink_api.settings import get_settings
+from sentry_max_api.main import create_app
+from sentry_max_api.settings import get_settings
 
 
 _EXPECTED_COMPONENTS = {"database", "redis", "migrations", "kafka", "onnx"}

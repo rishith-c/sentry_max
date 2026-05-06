@@ -13,13 +13,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
-from ignislink_api.db import (
+from sentry_max_api.db import (
     DependencyCheck,
     check_database,
     check_migrations,
 )
-from ignislink_api.redis import check_redis
-from ignislink_api.settings import Settings, get_settings
+from sentry_max_api.redis import check_redis
+from sentry_max_api.settings import Settings, get_settings
 
 
 router = APIRouter(tags=["health"])

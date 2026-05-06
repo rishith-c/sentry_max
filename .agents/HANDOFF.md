@@ -1,4 +1,4 @@
-# IgnisLink Handoff Log
+# SentryMax Handoff Log
 
 ## 2026-05-02T04:23:52Z - codex
 
@@ -37,9 +37,9 @@
 
 - Saw your Stage-0 scaffold work on `feat/web/stage-0-scaffold` (root pnpm/turbo/tsconfig in `38b6a01`, `apps/web` Next 15 + Tailwind + shadcn-ready in `a0b7a58`) — clean, opinionated, exactly the shape I would have built. Thanks.
 - Stacked **commit `a7eca99`** on top: `packages/{ui,geospatial,contracts}` with vitest + tests-first.
-  - **`@ignislink/contracts`** is the centerpiece: zod schemas for `Detection`, `PredictSpread{Request,Response}`, `Incident{Internal,Public}Event`, `DispatchPayload`, `DispatchWebhookEnvelope`, `VerificationResult`. Includes `toPublicEvent()` server-side redaction transformer. Test in `__tests__/redaction.test.ts` enforces the §4.5 invariant via JSON-stringify substring assertions (no station name, no partner metadata, no neighborhood, no firms_confidence, no exact lat/lon, no UNREPORTED on the public stream).
-  - **`@ignislink/geospatial`** ships `bboxFromPoint`, `geohashEncode` (the public-map 500 m redaction primitive), and `windRoseBins` with the meteorological "from" convention. Three test files cover edges including a well-known SF geohash reference (`9q8yyk8`).
-  - **`@ignislink/ui`** is intentionally minimal — just `cn()` + verification/probability tokens. shadcn primitives land on the next pass alongside the first console screen, generated via Magic MCP per PRD §4.1.
+  - **`@sentry-max/contracts`** is the centerpiece: zod schemas for `Detection`, `PredictSpread{Request,Response}`, `Incident{Internal,Public}Event`, `DispatchPayload`, `DispatchWebhookEnvelope`, `VerificationResult`. Includes `toPublicEvent()` server-side redaction transformer. Test in `__tests__/redaction.test.ts` enforces the §4.5 invariant via JSON-stringify substring assertions (no station name, no partner metadata, no neighborhood, no firms_confidence, no exact lat/lon, no UNREPORTED on the public stream).
+  - **`@sentry-max/geospatial`** ships `bboxFromPoint`, `geohashEncode` (the public-map 500 m redaction primitive), and `windRoseBins` with the meteorological "from" convention. Three test files cover edges including a well-known SF geohash reference (`9q8yyk8`).
+  - **`@sentry-max/ui`** is intentionally minimal — just `cn()` + verification/probability tokens. shadcn primitives land on the next pass alongside the first console screen, generated via Magic MCP per PRD §4.1.
 - **Branch-scope concern (calling out so you can flag it):** the protocol classifies `packages/contracts` as shared / `feat/contracts/*` / lock + ADR. I bundled it on `feat/web/stage-0-scaffold` because (a) every field is referenced in PRD §4.5 + §5.5, both committed in HANDOFF on 04:40:23Z; (b) splitting now would force three back-to-back PRs with circular-feeling deps; (c) the redaction test is the most defensible TDD artifact possible for the protocol's "danger zones" rule. **If you want it split, say the word in a comment on PR #3 and I'll move `packages/contracts/**` onto `feat/contracts/predict-spread` with an ADR.** Otherwise PR #3 stays as-is until PRD merges land.
 - **Open ask for codex:** the contracts package assumes you'll do the pydantic codegen on your end (`zod-to-openapi` → `datamodel-code-generator` per HANDOFF response (3)). When you wire `apps/api-py`, please add the codegen script to your CI matrix so we catch contract drift in the PR that introduces it.
 
@@ -53,7 +53,7 @@
 
 - `apps/api-py` + `apps/api-node` + `apps/worker` scaffolds (Stage 0).
 - `infra/docker-compose.yml` for local Postgres+PostGIS+TimescaleDB+Redis+MinIO so the workspace can boot.
-- GitHub Actions CI matrix that runs `pnpm test`, `pnpm typecheck`, `pnpm --filter @ignislink/contracts test` on every PR — without CI, the redaction test isn't a true gate.
+- GitHub Actions CI matrix that runs `pnpm test`, `pnpm typecheck`, `pnpm --filter @sentry-max/contracts test` on every PR — without CI, the redaction test isn't a true gate.
 
 ## 2026-05-02T05:07:25Z - codex
 
@@ -69,14 +69,14 @@
 ## 2026-05-02T05:20:33Z - codex
 
 - Completed Codex review of PR #3. Recommendation: do **not** split `packages/contracts` solely for process; keep it in PR #3 if the blockers below are fixed.
-- Verified in disposable worktree `/Users/rishith/ignislink-pr3-review` after `pnpm install`:
-  - `pnpm --filter @ignislink/contracts test`: PASS, 16 tests.
-  - `pnpm --filter @ignislink/contracts typecheck`: FAIL, TS6059 because `__tests__/**/*` is included while `rootDir` is `src`.
-  - `pnpm --filter @ignislink/geospatial test`: FAIL, SF geohash reference expects `9q8yyk8` but implementation returns `9q8yym8` for `(-122.4194, 37.7793)` at precision 7.
-- PR #3 comment posted with changes requested before undraft/merge: https://github.com/rishith-c/ignislink/pull/3#issuecomment-4363039151
+- Verified in disposable worktree `/Users/rishith/sentry-max-pr3-review` after `pnpm install`:
+  - `pnpm --filter @sentry-max/contracts test`: PASS, 16 tests.
+  - `pnpm --filter @sentry-max/contracts typecheck`: FAIL, TS6059 because `__tests__/**/*` is included while `rootDir` is `src`.
+  - `pnpm --filter @sentry-max/geospatial test`: FAIL, SF geohash reference expects `9q8yyk8` but implementation returns `9q8yym8` for `(-122.4194, 37.7793)` at precision 7.
+- PR #3 comment posted with changes requested before undraft/merge: https://github.com/rishith-c/sentry-max/pull/3#issuecomment-4363039151
 - Codex Stage 0 follow-ups after PRD merge:
-  - Package `@ignislink/contracts` and `@ignislink/geospatial` as emitted JS + `.d.ts` for Node services/workers, not source-only `.ts` exports.
-  - Add missing `@ignislink/contracts` `./geometry` export.
+  - Package `@sentry-max/contracts` and `@sentry-max/geospatial` as emitted JS + `.d.ts` for Node services/workers, not source-only `.ts` exports.
+  - Add missing `@sentry-max/contracts` `./geometry` export.
   - Add Zod/OpenAPI -> Pydantic codegen and CI drift check with `apps/api-py`.
   - Make public DTO schemas strict and validate `toPublicEvent()` output with `IncidentPublicEventSchema.parse`.
 
@@ -89,7 +89,7 @@
 ## 2026-05-02T16:13:01Z - codex
 
 - PRD gate is complete through PR #16 (`docs/prd-integrate`), tagged `v0.0.1-prd`.
-- In isolated worktree `/Users/rishith/ignislink-pr3-fix`, Codex is hardening PR #3's shared/package surfaces without touching Claude's active checkout.
+- In isolated worktree `/Users/rishith/sentry-max-pr3-fix`, Codex is hardening PR #3's shared/package surfaces without touching Claude's active checkout.
 - Contracts/geospatial/ui package tests and typechecks are passing after dist exports, stricter dispatch/event schemas, redaction validation, and a UI token smoke test.
 - Cross-domain note before web touch: root `pnpm test` still fails only because `apps/web` has `vitest run` but no test files. I am adding a minimal no-behavior smoke test in `apps/web` on PR #3 solely to make the Stage-0 test gate executable.
 
@@ -97,7 +97,7 @@
 
 - PR #3 updated with `6b63ff8 fix(stage-0): harden shared package gates`, rebased on Claude's latest `258d57a`.
 - Verification on the rebased PR branch: `pnpm test` pass (7/7), `pnpm typecheck` pass (7/7), `pnpm build` pass (4/4).
-- Package changes: `@ignislink/contracts`, `@ignislink/geospatial`, and `@ignislink/ui` now build to `dist`; contracts export `./geometry`; dispatch/event schemas are strict; public redaction output is schema-validated.
+- Package changes: `@sentry-max/contracts`, `@sentry-max/geospatial`, and `@sentry-max/ui` now build to `dist`; contracts export `./geometry`; dispatch/event schemas are strict; public redaction output is schema-validated.
 - Cross-domain web touch was limited to `apps/web/src/lib/utils.test.ts` so the app package has a real Vitest smoke test. No UI behavior changed.
 - Remaining non-fatal build warnings are in Agent A web files: unused `project`, unused `CloudRain`/`useState`/`GeoJsonProperties`, and Leaflet marker cleanup ref warning.
 
@@ -118,7 +118,7 @@
 
 - Forge/SENTRY console UI pass implemented on `feat/web/forge-sentry-ui`.
 - Frontend changes: `/console` now uses a macOS-style glass window shell, Forge orange/material tokens, warm/dark mesh background, resizable shadcn panels, shadcn `Button`/`Badge`/`Input`/`Sheet` controls, polished map overlays, selected-incident glass inspector, and shadcn-powered Leaflet layer toggles.
-- Validation: `pnpm --filter @ignislink/web typecheck` pass, `pnpm --filter @ignislink/web test` pass, `pnpm --filter @ignislink/web build` pass with no warnings after cleanup. Local smoke check: `curl -I http://localhost:3001/console` returned `200 OK`.
+- Validation: `pnpm --filter @sentry-max/web typecheck` pass, `pnpm --filter @sentry-max/web test` pass, `pnpm --filter @sentry-max/web build` pass with no warnings after cleanup. Local smoke check: `curl -I http://localhost:3001/console` returned `200 OK`.
 - Handoff for Agent A: please review frontend visuals and interaction details before merge; Codex intentionally limited this pass to the user-requested design implementation and did not alter ML/model training behavior.
 
 ## 2026-05-04T23:09:28Z - codex
@@ -131,11 +131,11 @@
 
 - User screenshot feedback addressed on `feat/web/forge-sentry-ui`: removed fake desktop traffic-light chrome and outer margins, made `/console` a true full-screen app, moved map terrain/layer controls below the map title overlay to prevent collisions, removed the large cursor spotlight that obscured terrain, and converted the detail sheet to a flush right operations drawer.
 - Added `GET /api/incidents` in the web app to enrich incident wind/humidity/temperature/10-day precip/fuel-dryness from Open-Meteo at runtime, with fixture fallback only when the live weather call fails. The console now surfaces the weather provenance instead of presenting hardcoded wind as live.
-- Validation repeated: `pnpm --filter @ignislink/web typecheck`, `pnpm --filter @ignislink/web test`, `pnpm --filter @ignislink/web build`, `curl -I http://localhost:3001/console`, and `curl http://localhost:3001/api/incidents` all pass/respond. Note: production-quality real-data ML training is still blocked by the Stage 3 WebDataset reader/shard builder stub in `ml/training/dataset.py`; this UI pass does not pretend the smoke-trained model is production trained.
+- Validation repeated: `pnpm --filter @sentry-max/web typecheck`, `pnpm --filter @sentry-max/web test`, `pnpm --filter @sentry-max/web build`, `curl -I http://localhost:3001/console`, and `curl http://localhost:3001/api/incidents` all pass/respond. Note: production-quality real-data ML training is still blocked by the Stage 3 WebDataset reader/shard builder stub in `ml/training/dataset.py`; this UI pass does not pretend the smoke-trained model is production trained.
 
 ## 2026-05-04T23:53:43Z - codex
 
-- User requested a clean localhost restart and a stronger model run. Codex stopped the existing localhost listeners, started PR #19 from a clean worktree at `/Users/rishith/ignislink-forge-ui`, and verified `http://localhost:3000/console` plus `GET /api/incidents`.
+- User requested a clean localhost restart and a stronger model run. Codex stopped the existing localhost listeners, started PR #19 from a clean worktree at `/Users/rishith/sentry-max-forge-ui`, and verified `http://localhost:3000/console` plus `GET /api/incidents`.
 - Added explicit MPS/GPU accelerator support to `ml/training/train.py` while preserving CPU as the default for deterministic tests.
 - Trained a bounded local fire-spread candidate on Apple MPS: 5.1M-parameter U-Net+ConvLSTM, 3 epochs, 24 synthetic Rothermel-supervised training samples, 8 validation samples, 48x48 grid, best checkpoint `ml/checkpoints/prod-candidate-bounded/fire-spread-smoke-epoch=02-val_loss=1.289.ckpt`, elapsed 471.9s.
 - Exported and verified `ml/models/fire-spread-prod-candidate-bounded.onnx`; ONNXRuntime max delta vs PyTorch was `1.19e-07`.
@@ -151,21 +151,21 @@
 
 ## 2026-05-01T00:30:00Z - claude (hackathon Agent 4 / frontend-wire)
 
-- Wired the frontend to the FastAPI backend on `feat/hackathon/frontend-wire` (worktree `/Users/rishith/ignislink-forge-ui`, branched off `feat/web/forge-sentry-ui`).
+- Wired the frontend to the FastAPI backend on `feat/hackathon/frontend-wire` (worktree `/Users/rishith/sentry-max-forge-ui`, branched off `feat/web/forge-sentry-ui`).
 - New typed client at `apps/web/src/lib/api/client.ts` — `getDetections`, `postPredictSpread`, `postDispatch`, `getEarthquakes`, `getFloodGauges`. Single network retry, 5s timeout, `ApiResult<T>` envelope (`{data} | {error}`) so callers can decide on fallback. Configurable base URL via `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`).
 - TanStack Query hooks at `apps/web/src/lib/api/hooks.ts` — `useDetections`, `useEarthquakes`, `useFloodGauges` with 30s refetch and graceful fixture fallback in the queryFn so the console keeps rendering when the backend is down.
 - SSE bridge at `apps/web/src/lib/api/sse.ts` — `useDetectionsStream` opens `EventSource(/stream/detections)` and reports `connecting | open | fallback | closed`. Console header now shows a LIVE pulse pill (green=open, amber=poll-fallback, zinc=connecting, red=offline). 4s open-deadline before showing fallback.
 - `apps/web/src/app/api/incidents/route.ts` now proxies `/detections` from the FastAPI backend first; falls through to the existing Open-Meteo-enriched fixture path when the backend is unreachable. Provenance metadata reflects which path was used.
 - `apps/web/src/app/console/page.tsx` keeps the existing fixture seed for SSR but layers a 30s `/api/incidents` poll plus SSE merge-by-id append. The Dispatch button now `POST`s `/dispatch/{id}` and toasts via `sonner` — "Dispatch sent — ETA X min" on success, "Dispatch failed: …" on failure. Toaster mounted in a new `apps/web/src/app/providers.tsx` that also hosts the QueryClient.
 - `EarthquakeMap` and `FloodMap` accept an optional `viaBackend?: boolean` prop; default `false` preserves direct USGS fetch. When true they hit `/earthquakes` / `/floods/gauges?state=ca` and gracefully fall back to USGS direct on backend failure.
-- Tests: `apps/web/src/lib/api/__tests__/client.test.ts` (12 vitest cases) covers happy path, single retry, 4xx no-retry, URL encoding, JSON content-type, query-param round-trip. `pnpm --filter @ignislink/web test` → 14/14 pass. `pnpm --filter @ignislink/web typecheck` and `pnpm --filter @ignislink/web build` both clean (only pre-existing lint warnings in unrelated files).
+- Tests: `apps/web/src/lib/api/__tests__/client.test.ts` (12 vitest cases) covers happy path, single retry, 4xx no-retry, URL encoding, JSON content-type, query-param round-trip. `pnpm --filter @sentry-max/web test` → 14/14 pass. `pnpm --filter @sentry-max/web typecheck` and `pnpm --filter @sentry-max/web build` both clean (only pre-existing lint warnings in unrelated files).
 - `.env.local.example` documents `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`.
 - Constraint compliance: this PR touches only `apps/web/`. The `apps/api-py/`, `apps/worker/`, `infra/`, `ml/`, and `packages/` modifications visible in `git status` are from Agents 1–3 working in parallel and are NOT in this commit.
 - Open items for the demo path: when Agent 2's `/stream/detections` SSE endpoint isn't live yet, the console transparently falls back to 30s polling — the LIVE pill turns amber. Dispatch toasts will surface a clear "backend unreachable" error instead of failing silently.
 
 ## 2026-05-05T23:18:00Z - agent-3 (data-pipeline)
 
-- Branch: `feat/hackathon/data-pipeline` (worktree of `ignislink-forge-ui`). Touched only `apps/worker/` plus a small spark-jobs volume mount on `infra/docker-compose.yml`. Did not touch `apps/web/`, `apps/api-py/`, `packages/`, or `ml/`.
+- Branch: `feat/hackathon/data-pipeline` (worktree of `sentry-max-forge-ui`). Touched only `apps/worker/` plus a small spark-jobs volume mount on `infra/docker-compose.yml`. Did not touch `apps/web/`, `apps/api-py/`, `packages/`, or `ml/`.
 - Built the full live data pipeline:
   - **Sources** (`apps/worker/src/sources/`): `firms.py` (NASA FIRMS VIIRS_NOAA20_NRT, 60s, 24h × 375 m sliding dedup, fixture fallback when `FIRMS_API_KEY` is unset), `usgs_quakes.py` (USGS `all_day.geojson`, 5 min), `usgs_water.py` (USGS NWIS IV stage parameter 00065, 15 min). All three async pollers publish JSON to Kafka topics `detections.created`, `earthquakes.observed`, `gauges.stage`.
   - **Sinks** (`apps/worker/src/sinks/postgres.py`): one Kafka consumer per topic running on a worker thread, bulk-insert into `detections` / `earthquake_events` / `gauge_observations`, idempotent via primary keys + `ON CONFLICT`. `psycopg[binary]` for zero-libpq install.
@@ -176,18 +176,18 @@
 - **Tests** (`apps/worker/tests/`): 21/21 passing. `test_firms_dedup.py` covers the dedup window radius + horizon + fixture round-trip + normalization edge cases. `test_usgs_parse.py` covers both USGS parsers including missing-value sentinels and empty payloads. `test_geo.py` adds geohash + haversine reference-point sanity (Eiffel Tower precision-5 == `u09tu`).
 - **Docker**: `apps/worker/Dockerfile` rewritten — `python:3.12-slim`, installs `apps/worker` editable, `ENTRYPOINT ["python", "-m", "apps.worker"]`. Build context is the repo root.
 - **Infra change**: added a read-only volume mount of `apps/worker/src/spark` (and `apps/worker/src/common`) into `/opt/jobs` on both `spark-master` and `spark-worker` so the streaming job is visible to `spark-submit` without rebuilding the bitnami image. This is the only line I touched outside `apps/worker/`.
-- **Compatibility**: kept the legacy `src/ignislink_worker/` Celery surface untouched so PR #14's BullMQ webhook fan-out + Stage-0 Celery boot test (`test_celery_boot.py`) still pass.
+- **Compatibility**: kept the legacy `src/sentry-max_worker/` Celery surface untouched so PR #14's BullMQ webhook fan-out + Stage-0 Celery boot test (`test_celery_boot.py`) still pass.
 - **Open coordination notes**:
   - Agent 1's `infra/sql/` is currently empty; the worker migrations are self-contained so the pipeline boots without it. If Agent 1 lands the same `detections` / `earthquake_events` / `gauge_observations` tables, the `IF NOT EXISTS` guards make ours a no-op.
   - Branch was opened as `feat/hackathon/data-pipeline` per the brief (the worktree was previously on `feat/hackathon/data-infra` — Agent 1's docker-compose work is included as the parent commit so we share infra).
 
 ## 2026-05-05T23:30:00Z - agent-2 (backend / api-py)
 
-- Branch: `feat/hackathon/backend` (worktree of `ignislink-forge-ui`). Touched only `apps/api-py/` and a fenced AGENT-2 block in `infra/docker-compose.yml`. Did not touch `apps/web/`, `apps/worker/`, `apps/api-node/`, `packages/`, or `ml/`.
+- Branch: `feat/hackathon/backend` (worktree of `sentry-max-forge-ui`). Touched only `apps/api-py/` and a fenced AGENT-2 block in `infra/docker-compose.yml`. Did not touch `apps/web/`, `apps/worker/`, `apps/api-node/`, `packages/`, or `ml/`.
 - Built the full backend service:
-  - **Routes** (`apps/api-py/src/ignislink_api/routes/`): `health.py` (now also checks Kafka + ONNX), `detections.py` (`GET` with bbox + pagination, `POST` writes to PostGIS + emits Kafka `detections.received`), `predict.py` (`POST /predict/spread` matching `packages/contracts/src/predict-spread.ts`, runs the bundled ONNX off the event loop, 15-min Redis cache keyed by SHA-256 of `detection_id|model_version|sample_at|context_raster_key`), `dispatch.py` (`POST /dispatch/{detection_id}` ranks fixture stations, persists to `dispatches`, emits Kafka `dispatches.sent`), `earthquakes.py` (bbox + since query against `earthquake_events` hypertable, decorates each row with Omori-Utsu / Gutenberg-Richter aftershock probability), `floods.py` (`/floods/gauges?state=ca` returns latest stage + 6h/24h/48h × p10/p50/p90 quantile forecast).
-  - **Pydantic contracts** (`apps/api-py/src/ignislink_api/contracts.py`): hand-written mirrors of the zod schemas in `packages/contracts/src/*.ts`. Strict (`extra="forbid"` on Dispatch). Round-trip tested in `tests/test_contracts.py`.
-  - **Infra wiring** (`apps/api-py/src/ignislink_api/`): `database.py` (async SQLAlchemy engine + sessionmaker), `kafka_io.py` (aiokafka producer with fail-soft fallback so the API still serves when Kafka is unreachable), `onnx_loader.py` (`onnxruntime.InferenceSession` wrapped in `asyncio.to_thread`, includes `synthesize_input` for tests/MinIO-fallback), `dispatch_logic.py` (port of `rankResources` from `packages/contracts/src/dispatch.ts` over 7 fixture CA stations + haversine ETA refresh + 2 km upwind staging), `hazard_math.py` (NumPy ports of Omori-Utsu, Gutenberg-Richter, and EA-LSTM-shaped persistence-plus-slope forecast — no PyTorch in the API), `spread_post.py` (post-processes ONNX `(B,3,H,W)` raster into `HorizonResult` MultiPolygons via the circle-scaled-to-acres approximation; opted out of OpenCV per the brief).
+  - **Routes** (`apps/api-py/src/sentry_max_api/routes/`): `health.py` (now also checks Kafka + ONNX), `detections.py` (`GET` with bbox + pagination, `POST` writes to PostGIS + emits Kafka `detections.received`), `predict.py` (`POST /predict/spread` matching `packages/contracts/src/predict-spread.ts`, runs the bundled ONNX off the event loop, 15-min Redis cache keyed by SHA-256 of `detection_id|model_version|sample_at|context_raster_key`), `dispatch.py` (`POST /dispatch/{detection_id}` ranks fixture stations, persists to `dispatches`, emits Kafka `dispatches.sent`), `earthquakes.py` (bbox + since query against `earthquake_events` hypertable, decorates each row with Omori-Utsu / Gutenberg-Richter aftershock probability), `floods.py` (`/floods/gauges?state=ca` returns latest stage + 6h/24h/48h × p10/p50/p90 quantile forecast).
+  - **Pydantic contracts** (`apps/api-py/src/sentry_max_api/contracts.py`): hand-written mirrors of the zod schemas in `packages/contracts/src/*.ts`. Strict (`extra="forbid"` on Dispatch). Round-trip tested in `tests/test_contracts.py`.
+  - **Infra wiring** (`apps/api-py/src/sentry_max_api/`): `database.py` (async SQLAlchemy engine + sessionmaker), `kafka_io.py` (aiokafka producer with fail-soft fallback so the API still serves when Kafka is unreachable), `onnx_loader.py` (`onnxruntime.InferenceSession` wrapped in `asyncio.to_thread`, includes `synthesize_input` for tests/MinIO-fallback), `dispatch_logic.py` (port of `rankResources` from `packages/contracts/src/dispatch.ts` over 7 fixture CA stations + haversine ETA refresh + 2 km upwind staging), `hazard_math.py` (NumPy ports of Omori-Utsu, Gutenberg-Richter, and EA-LSTM-shaped persistence-plus-slope forecast — no PyTorch in the API), `spread_post.py` (post-processes ONNX `(B,3,H,W)` raster into `HorizonResult` MultiPolygons via the circle-scaled-to-acres approximation; opted out of OpenCV per the brief).
   - **Lifespan** (`main.py`): boots Postgres pool + Redis pool + Kafka producer + ONNX session, all best-effort with structured logs on failure. `REQUIRE_DEPENDENCIES=true` flips the readiness probe to fail-closed.
 - **Tests** (`apps/api-py/tests/`): **29/29 pass on CPU in 1.3 s.** Includes a real `onnxruntime` forward-pass test against `ml/models/fire-spread-prod-candidate-bounded.onnx` (the bundled ONNX — used in lieu of the `fire-spread-smoke.onnx` mentioned in the brief, since the prod-candidate is what's checked in). Coverage spans contract round-trips, hash determinism, ranker behavior, hazard-prior monotonicity, persistence-forecast quantile ordering, OpenAPI surface check, and the bbox 400 path.
 - **Docker**: `Dockerfile` is now multi-stage (`builder` builds wheels, `runtime` installs them and copies `ml/models/*.onnx` into the image). Build context is the repo root. `HEALTHCHECK` curls `/health`.

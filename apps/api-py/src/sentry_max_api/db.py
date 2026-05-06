@@ -4,7 +4,7 @@ from typing import Literal
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from ignislink_api.settings import Settings
+from sentry_max_api.settings import Settings
 
 CheckStatus = Literal["ok", "degraded", "error"]
 

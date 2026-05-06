@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from ignislink_api.contracts import Point, StationCandidate
+from sentry_max_api.contracts import Point, StationCandidate
 
 
 # Fixture stations for the demo — covering the broader Bay Area / California

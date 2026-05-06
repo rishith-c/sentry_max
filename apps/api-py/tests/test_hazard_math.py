@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from ignislink_api.hazard_math import (
+from sentry_max_api.hazard_math import (
     aftershock_probability,
     gutenberg_richter_p_above,
     omori_utsu_rate,

@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from ignislink_api.contracts import (
+from sentry_max_api.contracts import (
     Detection,
     DetectionLocality,
     DetectionProvenance,

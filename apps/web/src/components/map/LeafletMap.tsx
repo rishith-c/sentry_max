@@ -237,7 +237,7 @@ export function LeafletMap({
 </div>`;
       const icon = L.divIcon({
         html,
-        className: "ignis-marker",
+        className: "sentry-marker",
         iconSize: [radius * 4, radius * 4],
         iconAnchor: [radius * 2, radius * 2],
       });
@@ -337,7 +337,7 @@ export function LeafletMap({
           const stnHtml = `<div class="sentry-pulse-dot" style="--pulse-color:${color};"></div>`;
           const stnIcon = L.divIcon({
             html: stnHtml,
-            className: "ignis-station-marker",
+            className: "sentry-station-marker",
             iconSize: [18, 18],
             iconAnchor: [9, 9],
           });
@@ -368,7 +368,7 @@ export function LeafletMap({
           const unitHtml = `<div class="sentry-pulse-dot" style="--pulse-color:${color};transform:scale(1.15);"></div>`;
           const unitIcon = L.divIcon({
             html: unitHtml,
-            className: "ignis-unit-marker",
+            className: "sentry-unit-marker",
             iconSize: [22, 22],
             iconAnchor: [11, 11],
           });

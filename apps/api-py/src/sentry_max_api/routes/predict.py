@@ -21,13 +21,13 @@ from typing import Awaitable, cast
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from redis.asyncio import Redis
 
-from ignislink_api.contracts import (
+from sentry_max_api.contracts import (
     PredictSpreadRequest,
     PredictSpreadResponse,
 )
-from ignislink_api.onnx_loader import FireSpreadOnnx, synthesize_input
-from ignislink_api.settings import Settings, get_settings
-from ignislink_api.spread_post import build_horizon_results
+from sentry_max_api.onnx_loader import FireSpreadOnnx, synthesize_input
+from sentry_max_api.settings import Settings, get_settings
+from sentry_max_api.spread_post import build_horizon_results
 
 
 router = APIRouter(prefix="/predict", tags=["predict"])

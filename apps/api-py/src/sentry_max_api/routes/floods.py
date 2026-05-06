@@ -14,7 +14,7 @@ from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from ignislink_api.hazard_math import persistence_slope_forecast
+from sentry_max_api.hazard_math import persistence_slope_forecast
 
 
 router = APIRouter()

@@ -15,11 +15,11 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from ignislink_api.main import create_app
-from ignislink_api.onnx_loader import FireSpreadOnnx, synthesize_input
-from ignislink_api.routes.predict import derive_input_hash
-from ignislink_api.settings import get_settings
-from ignislink_api.contracts import (
+from sentry_max_api.main import create_app
+from sentry_max_api.onnx_loader import FireSpreadOnnx, synthesize_input
+from sentry_max_api.routes.predict import derive_input_hash
+from sentry_max_api.settings import get_settings
+from sentry_max_api.contracts import (
     PredictSpreadRequest,
     Point,
     WindSummary,

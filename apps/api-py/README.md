@@ -1,4 +1,4 @@
-# IgnisLink Python API (sentry hackathon backend)
+# SentryMax Python API (sentry hackathon backend)
 
 FastAPI service that fronts the SENTRY hackathon stack:
 * Postgres + PostGIS + TimescaleDB (detections, predictions, dispatches, earthquake_events, gauge_observations)
@@ -31,7 +31,7 @@ pip install -e ".[dev]"
 docker compose -f infra/docker-compose.yml up -d
 
 # Or run the API standalone with no deps (degraded mode):
-uvicorn ignislink_api.main:app --reload
+uvicorn sentry_max_api.main:app --reload
 
 # Tests
 pytest

@@ -5,13 +5,13 @@ import { UsMap, type MapHotspot } from "./UsMap";
 import { FireParticles, type ParticleSource } from "./FireParticles";
 import { ALBERS_WIDTH, ALBERS_HEIGHT, projectLonLat } from "./projection";
 
-export interface IgnisMapHotspot extends MapHotspot {
+export interface SentryMapHotspot extends MapHotspot {
   /** Optional spread bearing for the particle origin. Falls back to wind. */
   spreadBearingDeg?: number;
 }
 
-interface IgnisMapProps {
-  hotspots: IgnisMapHotspot[];
+interface SentryMapProps {
+  hotspots: SentryMapHotspot[];
   publicOnly?: boolean;
   onHotspotClick?: (id: string) => void;
   /** Aspect-locked container; ratio enforced via the wrapper's aspect-[975/610]. */
@@ -26,12 +26,12 @@ const COLOR_BY_STATUS: Record<MapHotspot["status"], string> = {
   LIKELY_INDUSTRIAL: "#a855f7",
 };
 
-export function IgnisMap({
+export function SentryMap({
   hotspots,
   publicOnly = false,
   onHotspotClick,
   className,
-}: IgnisMapProps) {
+}: SentryMapProps) {
   // Project all sources up front so the canvas doesn't redo it every frame.
   const particleSources = useMemo<ParticleSource[]>(() => {
     return hotspots
