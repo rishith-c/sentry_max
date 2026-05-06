@@ -80,8 +80,30 @@ const FireSimulator3D = dynamic(
   },
 );
 
+// ONNX-aware 3D scene. Self-contained sibling of FireSimulator3D that runs
+// `/fire-spread-smoke.onnx` in a Web Worker every ~500ms and blends its
+// t+6h burn-probability raster onto the terrain. The "3D + AI" tab below
+// switches to this component.
+const FireSimulator3DOnnxOverlay = dynamic(
+  () =>
+    import("@/components/map/FireSimulator3DOnnxOverlay").then(
+      (m) => m.FireSimulator3DOnnxOverlay,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full w-full items-center justify-center bg-black text-xs text-zinc-500">
+        loading 3d + AI…
+      </div>
+    ),
+  },
+);
+
 type HazardKind = "fire" | "earthquake" | "flood";
-type ViewMode = "2d" | "3d";
+// 3D + AI runs the in-browser ONNX U-Net+ConvLSTM model and blends its p6h
+// burn-probability raster onto the terrain. Falls back to CA-only when the
+// /fire-spread-smoke.onnx artifact isn't present in the build.
+type ViewMode = "2d" | "3d" | "3d-ai";
 import { IntelPanel } from "@/components/console/IntelPanel";
 import { EarthquakeSidebar } from "@/components/console/EarthquakeSidebar";
 import { FloodSidebar } from "@/components/console/FloodSidebar";
@@ -647,30 +669,56 @@ function MapPanel({
     [incidents],
   );
   const sceneIncident = selected ?? fallback;
-  const showing3d = view === "3d" && hazard === "fire" && sceneIncident !== null;
+  const showing3d =
+    (view === "3d" || view === "3d-ai") && hazard === "fire" && sceneIncident !== null;
+  const useOnnxModel = view === "3d-ai";
   return (
     <section
       className="sentry-map-stage relative h-full min-h-0 overflow-hidden bg-[#060609]"
       aria-label="Live wildfire map"
     >
       {showing3d && sceneIncident ? (
-        <FireSimulator3D
-          windDirDeg={sceneIncident.windDirDeg}
-          windSpeedMs={sceneIncident.windSpeedMs}
-          predicted1hAcres={sceneIncident.predictedSpread.find((p) => p.horizonMin === 60)?.areaAcres}
-          predicted6hAcres={sceneIncident.predictedSpread.find((p) => p.horizonMin === 360)?.areaAcres}
-          predicted24hAcres={
-            sceneIncident.predictedSpread.find((p) => p.horizonMin === 1440)?.areaAcres
-          }
-          risk={sceneIncident.fireRadiativePower > 300 ? "CRITICAL" : sceneIncident.fireRadiativePower > 150 ? "HIGH" : "MODERATE"}
-          resources={sceneIncident.stations.slice(0, 6).map((s, idx) => ({
-            id: s.id,
-            kind: idx === 0 ? "helicopter" : idx === 1 ? "fixed-wing" : idx === 2 ? "dozer" : "engine",
-            bearingDeg: idx * 60 + 30,
-            distanceKm: s.distanceKm ?? 5 + idx * 1.5,
-            etaMinutes: s.etaMinutes,
-          }))}
-        />
+        useOnnxModel ? (
+          <FireSimulator3DOnnxOverlay
+            windDirDeg={sceneIncident.windDirDeg}
+            windSpeedMs={sceneIncident.windSpeedMs}
+            predicted1hAcres={
+              sceneIncident.predictedSpread.find((p) => p.horizonMin === 60)?.areaAcres
+            }
+            predicted6hAcres={
+              sceneIncident.predictedSpread.find((p) => p.horizonMin === 360)?.areaAcres
+            }
+            predicted24hAcres={
+              sceneIncident.predictedSpread.find((p) => p.horizonMin === 1440)?.areaAcres
+            }
+            risk={
+              sceneIncident.fireRadiativePower > 300
+                ? "CRITICAL"
+                : sceneIncident.fireRadiativePower > 150
+                  ? "HIGH"
+                  : "MODERATE"
+            }
+            useOnnx
+          />
+        ) : (
+          <FireSimulator3D
+            windDirDeg={sceneIncident.windDirDeg}
+            windSpeedMs={sceneIncident.windSpeedMs}
+            predicted1hAcres={sceneIncident.predictedSpread.find((p) => p.horizonMin === 60)?.areaAcres}
+            predicted6hAcres={sceneIncident.predictedSpread.find((p) => p.horizonMin === 360)?.areaAcres}
+            predicted24hAcres={
+              sceneIncident.predictedSpread.find((p) => p.horizonMin === 1440)?.areaAcres
+            }
+            risk={sceneIncident.fireRadiativePower > 300 ? "CRITICAL" : sceneIncident.fireRadiativePower > 150 ? "HIGH" : "MODERATE"}
+            resources={sceneIncident.stations.slice(0, 6).map((s, idx) => ({
+              id: s.id,
+              kind: idx === 0 ? "helicopter" : idx === 1 ? "fixed-wing" : idx === 2 ? "dozer" : "engine",
+              bearingDeg: idx * 60 + 30,
+              distanceKm: s.distanceKm ?? 5 + idx * 1.5,
+              etaMinutes: s.etaMinutes,
+            }))}
+          />
+        )
       ) : hazard === "earthquake" ? (
         <EarthquakeMap />
       ) : hazard === "flood" ? (
@@ -734,6 +782,9 @@ function MapPanel({
               </TabsTrigger>
               <TabsTrigger value="3d" className="h-7 px-3 text-[10px] font-medium uppercase tracking-wide">
                 3D
+              </TabsTrigger>
+              <TabsTrigger value="3d-ai" className="h-7 px-3 text-[10px] font-medium uppercase tracking-wide">
+                3D + AI
               </TabsTrigger>
             </TabsList>
           </Tabs>
