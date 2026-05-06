@@ -42,6 +42,7 @@ import { bboxFromPoints } from "@/lib/firms/project";
 import { LeafletMap } from "@/components/map/MapContainer";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import dynamic from "next/dynamic";
+import { computeBbox } from "@/lib/geo/bbox";
 
 // EarthquakeMap + FloodMap import leaflet at module top-level — leaflet
 // touches `window` so they must be SSR-disabled like FireSimulator3D.
@@ -69,8 +70,13 @@ const FloodMap = dynamic(
 );
 
 // 3D fire visualizer is browser-only (three.js); load it client-side.
-const FireSimulator3D = dynamic(
-  () => import("@/components/map/FireSimulator3D").then((m) => m.FireSimulator3D),
+// We use the *Live* wrapper which fetches real DEM (AWS Terrain Tiles) +
+// a 5x5 Open-Meteo spatial wind grid via TanStack Query and forwards the
+// rest of the props to FireSimulator3D unchanged. Any fetch failure
+// degrades gracefully back to the procedural terrain + uniform wind.
+const FireSimulator3DLive = dynamic(
+  () =>
+    import("@/components/map/FireSimulator3DLive").then((m) => m.FireSimulator3DLive),
   {
     ssr: false,
     loading: () => (
@@ -674,10 +680,11 @@ function MapPanel({
     (view === "3d" || view === "3d-ai") && hazard === "fire" && sceneIncident !== null;
   const useOnnxModel = view === "3d-ai";
 
-  // FIRMS multi-fire integration: every fire incident becomes a hotspot
-  // for the 3D scene. The bbox is the smallest box covering all visible
-  // incidents (with a small padding) so the projection lines them up
-  // sensibly inside the terrain extent.
+  // FIRMS multi-fire integration (Agent A). Every fire incident becomes
+  // a hotspot for the 3D scene; the bbox is the smallest box covering all
+  // visible incidents with a small pad. The same bbox is reused by Agent
+  // C's hooks (useDemHeightmap + useWindGrid) inside FireSimulator3DLive
+  // to fetch real terrain + wind for that area — one bbox drives both.
   const fireHotspots = useMemo(
     () =>
       incidents.map((i) => ({
@@ -692,7 +699,11 @@ function MapPanel({
     [incidents],
   );
   const fireBbox = useMemo(
-    () => bboxFromPoints(fireHotspots.map((h) => ({ lat: h.lat, lon: h.lon })), 0.06),
+    () =>
+      bboxFromPoints(
+        fireHotspots.map((h) => ({ lat: h.lat, lon: h.lon })),
+        0.06,
+      ),
     [fireHotspots],
   );
   return (
@@ -702,6 +713,7 @@ function MapPanel({
     >
       {showing3d && sceneIncident ? (
         useOnnxModel ? (
+          // ONNX model overlay (Agent B). Sidecar — does its own scene.
           <FireSimulator3DOnnxOverlay
             windDirDeg={sceneIncident.windDirDeg}
             windSpeedMs={sceneIncident.windSpeedMs}
@@ -724,15 +736,29 @@ function MapPanel({
             useOnnx
           />
         ) : (
-          <FireSimulator3D
+          // Default 3D scene. FireSimulator3DLive (Agent C) wraps with the
+          // DEM + wind-grid hooks; we forward Agent A's hotspots, fireBbox,
+          // and tourMode through it for full multi-fire FIRMS rendering.
+          <FireSimulator3DLive
+            bbox={fireBbox}
             windDirDeg={sceneIncident.windDirDeg}
             windSpeedMs={sceneIncident.windSpeedMs}
-            predicted1hAcres={sceneIncident.predictedSpread.find((p) => p.horizonMin === 60)?.areaAcres}
-            predicted6hAcres={sceneIncident.predictedSpread.find((p) => p.horizonMin === 360)?.areaAcres}
+            predicted1hAcres={
+              sceneIncident.predictedSpread.find((p) => p.horizonMin === 60)?.areaAcres
+            }
+            predicted6hAcres={
+              sceneIncident.predictedSpread.find((p) => p.horizonMin === 360)?.areaAcres
+            }
             predicted24hAcres={
               sceneIncident.predictedSpread.find((p) => p.horizonMin === 1440)?.areaAcres
             }
-            risk={sceneIncident.fireRadiativePower > 300 ? "CRITICAL" : sceneIncident.fireRadiativePower > 150 ? "HIGH" : "MODERATE"}
+            risk={
+              sceneIncident.fireRadiativePower > 300
+                ? "CRITICAL"
+                : sceneIncident.fireRadiativePower > 150
+                  ? "HIGH"
+                  : "MODERATE"
+            }
             resources={sceneIncident.stations.slice(0, 6).map((s, idx) => ({
               id: s.id,
               kind: idx === 0 ? "helicopter" : idx === 1 ? "fixed-wing" : idx === 2 ? "dozer" : "engine",
@@ -741,7 +767,6 @@ function MapPanel({
               etaMinutes: s.etaMinutes,
             }))}
             hotspots={fireHotspots}
-            bbox={fireBbox ?? undefined}
             tourMode={fireHotspots.length > 1}
           />
         )

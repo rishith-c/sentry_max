@@ -82,6 +82,15 @@ interface FireSimulator3DProps {
   bbox?: FirmsBbox;
   /** When true, the camera auto-tours between hotspots (4s each, ease-out). */
   tourMode?: boolean;
+  /** Real DEM heightmap (Agent C). When provided, replaces the procedural
+   *  terrain. Expected length = TERRAIN_RES × TERRAIN_RES, normalised. */
+  demHeightmap?: Float32Array | null;
+  /** Spatial wind grid (Agent C). When provided, embers + the CA sample
+   *  per-cell wind from the grid via bilinear interp instead of using the
+   *  uniform `windDirDeg`/`windSpeedMs`. */
+  windGrid?: unknown | null;
+  /** Render small wind streamlines as a translucent overlay (Agent C). */
+  showWindStreamlines?: boolean;
 }
 
 const TERRAIN_SIZE = DEFAULT_TERRAIN_SIZE;
