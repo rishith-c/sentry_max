@@ -16,6 +16,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { NeuralResponseBadge } from "./NeuralResponseBadge";
 
 interface IntelResponse {
   incidentId: string;
@@ -112,12 +113,17 @@ export function IntelPanel({ incidentId }: { incidentId: string }) {
 
   return (
     <div className="space-y-4">
-      {/* Lethal-risk headline */}
-      <RiskHeadline
-        risk={data.threat.lethalRisk}
-        score={data.threat.lethalRiskScore}
-        rationale={data.threat.rationale}
-      />
+      {/* Lethal-risk headline + TRIBE v2 neural-response interpretability
+          signal. Grouped with tighter spacing because they describe the same
+          incident from two angles (heuristic + brain-encoder). */}
+      <div className="space-y-2">
+        <RiskHeadline
+          risk={data.threat.lethalRisk}
+          score={data.threat.lethalRiskScore}
+          rationale={data.threat.rationale}
+        />
+        <NeuralResponseBadge incidentId={incidentId} />
+      </div>
 
       {/* Cross-checks grid */}
       <div className="grid grid-cols-2 gap-2">
